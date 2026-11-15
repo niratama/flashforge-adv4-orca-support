@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flashforge Adventurer 4 - OrcaSlicer Bridge</title>
+  <style>
+    :root {
+      --bg: #121417;
+      --panel: #1c2026;
+      --border: #2c323b;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #00ae42;
+      --accent-hover: #00c84c;
+      --warn: #d29922;
+      --danger: #f85149;
+      --info: #58a6ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .title-group h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+
+    .title-group .subtitle {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .dot.offline { background: var(--danger); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .camera-box {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #0b0d10;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .camera-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .camera-fallback {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      color: var(--muted);
+      gap: 10px;
+    }
+
+    .temp-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      background: #14171c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 1.45rem;
+      font-weight: 700;
+    }
+
+    .metric-target {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .progress-wrap {
+      background: #14171c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 12px;
+      background: #252a33;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #2ea043);
+      transition: width 0.4s ease;
+    }
+
+    .file-info {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #242932;
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    button:hover { background: #2d333e; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover { background: var(--accent-hover); }
+
+    button.warn { border-color: var(--warn); color: var(--warn); }
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    button.danger:hover { background: rgba(248, 81, 73, 0.14); }
+
+    .status-msg {
+      margin-top: 12px;
+      min-height: 20px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .status-msg.error { color: var(--danger); }
+    .status-msg.ok { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title-group">
+        <h1>Flashforge Adventurer 4</h1>
+        <div class="subtitle">Printer IP: <code>{{ printer_ip }}</code></div>
+      </div>
+      <div class="badge">
+        <span id="conn-dot" class="dot"></span>
+        <span id="conn-text">接続確認中...</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>
+          <span>ライブカメラ</span>
+          <button type="button" onclick="reconnectCamera()" style="padding: 4px 10px; font-size: 0.8rem;">再接続</button>
+        </h2>
+        <div class="camera-box">
+          <img id="camera-img" src="{{ camera_url }}" alt="Adventurer 4 Camera Stream" onerror="onCameraError()" onload="onCameraLoad()" />
+          <div id="camera-fallback" class="camera-fallback">
+            <div>カメラ映像を取得できませんでした</div>
+            <div style="font-size: 0.8rem;">URL: <code>{{ camera_url }}</code></div>
+            <button type="button" onclick="reconnectCamera()">再試行</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>ステータス &amp; 操作</h2>
+
+        <div class="temp-grid">
+          <div class="metric">
+            <div class="metric-label">ノズル温度 (T0)</div>
+            <div class="metric-value">
+              <span id="nozzle-actual">--</span>°C
+              <span class="metric-target">/ <span id="nozzle-target">--</span>°C</span>
+            </div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">ベッド温度 (Bed)</div>
+            <div class="metric-value">
+              <span id="bed-actual">--</span>°C
+              <span class="metric-target">/ <span id="bed-target">--</span>°C</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-header">
+            <span id="machine-status">状態: --</span>
+            <span id="progress-percent">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="progress-fill" class="progress-bar-fill"></div>
+          </div>
+          <div class="file-info" id="current-file">ファイル: なし</div>
+        </div>
+
+        <div class="controls">
+          <button type="button" class="warn" onclick="sendAction('/api/printer/pause', '一時停止を送信しました')">一時停止</button>
+          <button type="button" class="primary" onclick="sendAction('/api/printer/resume', '再開を送信しました')">再開</button>
+          <button type="button" class="danger" onclick="cancelPrint()">印刷中止</button>
+          <button type="button" id="led-btn" onclick="toggleLed()">LED: 切替</button>
+        </div>
+
+        <div id="action-msg" class="status-msg"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const CAMERA_URL = {{ camera_url | tojson }};
+    let currentLedState = false;
+
+    function onCameraError() {
+      document.getElementById("camera-img").style.display = "none";
+      document.getElementById("camera-fallback").style.display = "flex";
+    }
+
+    function onCameraLoad() {
+      document.getElementById("camera-img").style.display = "block";
+      document.getElementById("camera-fallback").style.display = "none";
+    }
+
+    function reconnectCamera() {
+      const img = document.getElementById("camera-img");
+      const sep = CAMERA_URL.includes("?") ? "&" : "?";
+      img.style.display = "block";
+      document.getElementById("camera-fallback").style.display = "none";
+      img.src = CAMERA_URL + sep + "_t=" + Date.now();
+    }
+
+    function setActionMessage(text, isError = false) {
+      const el = document.getElementById("action-msg");
+      el.textContent = text;
+      el.className = "status-msg " + (isError ? "error" : "ok");
+    }
+
+    async function sendAction(url, successText, body = null) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : null,
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+          throw new Error(data.error || "操作に失敗しました");
+        }
+        setActionMessage(successText, false);
+        await fetchStatus();
+      } catch (err) {
+        setActionMessage(err.message, true);
+      }
+    }
+
+    function cancelPrint() {
+      if (!confirm("印刷を中止しますか？")) return;
+      sendAction("/api/printer/cancel", "印刷中止を送信しました");
+    }
+
+    function toggleLed() {
+      const nextState = !currentLedState;
+      sendAction("/api/printer/led", `LEDを${nextState ? "ON" : "OFF"}にしました`, { on: nextState });
+    }
+
+    function fmtTemp(val) {
+      return val === null || val === undefined ? "--" : Number(val).toFixed(1);
+    }
+
+    async function fetchStatus() {
+      const dot = document.getElementById("conn-dot");
+      const connText = document.getElementById("conn-text");
+
+      try {
+        const res = await fetch("/api/printer/status");
+        const data = await res.json();
+
+        if (data.connected) {
+          dot.className = "dot online";
+          connText.textContent = "接続中";
+        } else {
+          dot.className = "dot offline";
+          connText.textContent = "未接続";
+        }
+
+        const nozzle = data.temperatures?.nozzle || {};
+        const bed = data.temperatures?.bed || {};
+        document.getElementById("nozzle-actual").textContent = fmtTemp(nozzle.actual);
+        document.getElementById("nozzle-target").textContent = fmtTemp(nozzle.target);
+        document.getElementById("bed-actual").textContent = fmtTemp(bed.actual);
+        document.getElementById("bed-target").textContent = fmtTemp(bed.target);
+
+        const progress = data.progress || {};
+        const pct = Number(progress.percent || 0).toFixed(1);
+        document.getElementById("progress-percent").textContent = `${pct}%`;
+        document.getElementById("progress-fill").style.width = `${pct}%`;
+        document.getElementById("machine-status").textContent = `状態: ${data.machine_status || "UNKNOWN"}`;
+
+        const fileText = data.current_file ? `ファイル: ${data.current_file}` : "ファイル: なし";
+        document.getElementById("current-file").textContent = fileText;
+
+        if (data.led !== null && data.led !== undefined) {
+          currentLedState = Boolean(data.led);
+          document.getElementById("led-btn").textContent = `LED: ${currentLedState ? "ON" : "OFF"}`;
+        }
+      } catch (err) {
+        dot.className = "dot offline";
+        connText.textContent = "サーバー通信エラー";
+      }
+    }
+
+    fetchStatus();
+    setInterval(fetchStatus, 2500);
+  </script>
+</body>
+</html>
