@@ -16,7 +16,11 @@ import sys
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parent
-if str(PLUGIN_DIR) not in sys.path:
+LIB_DIR = PLUGIN_DIR / "lib"
+if LIB_DIR.is_dir():
+    if str(LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(LIB_DIR))
+elif str(PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGIN_DIR))
 
 from server import BridgeServer, load_config  # noqa: E402
@@ -74,7 +78,7 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
         def execute(self):
             bridge, info = _start_bridge()
             if bridge is None:
-                return orca.ExecutionResult.failure(info)
+                return orca.ExecutionResult.failure(orca.PluginResult.RecoverableError, info)
             printer_ip = bridge.config.get("printer", {}).get("ip", "unknown")
             return orca.ExecutionResult.success(
                 f"Bridge running at {info} (printer: {printer_ip}:8899)"
@@ -86,18 +90,31 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
 
         def register_capabilities(self) -> None:
             cfg = load_config()
-            printer_ip = cfg.get("printer", {}).get("ip", "192.168.1.100")
-            server_port = int(cfg.get("server", {}).get("port", 5000))
+            printer_cfg = cfg.get("printer", {})
+            server_cfg = cfg.get("server", {})
+            camera_cfg = cfg.get("camera", {})
+
+            printer_ip = printer_cfg.get("ip", "192.168.1.100")
+            printer_port = int(printer_cfg.get("port", 8899))
+            camera_url = printer_cfg.get("camera_url", f"http://{printer_ip}:8080/?action=stream")
+            server_host = server_cfg.get("host", "127.0.0.1")
+            server_port = int(server_cfg.get("port", 5000))
+            snapshot_dir = Path(camera_cfg.get("snapshot_dir", "snapshots"))
+            if not snapshot_dir.is_absolute():
+                snapshot_dir = PLUGIN_DIR / snapshot_dir
+
             if hasattr(orca, "request_permissions"):
                 try:
                     orca.request_permissions(
-                        network=[
-                            f"{printer_ip}:8899",
-                            f"{printer_ip}:8080",
-                            f"127.0.0.1:{server_port}",
-                            f"0.0.0.0:{server_port}",
-                        ],
                         fs_read=[str(PLUGIN_DIR)],
+                        fs_readwrite=[str(snapshot_dir)],
+                        network_http=[camera_url],
+                        network_socket=[
+                            f"('{printer_ip}', {printer_port})",
+                            f"('{server_host}', {server_port})",
+                            f"('127.0.0.1', {server_port})",
+                        ],
+                        threading=True,
                     )
                 except Exception as exc:
                     logger.debug("request_permissions skipped/failed: %s", exc)

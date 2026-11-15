@@ -140,10 +140,12 @@ class TestPluginBridgeServer(unittest.TestCase):
     def test_build_plugin_creates_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out = build_plugin(Path(tmpdir) / "flashforge_adv4_bridge")
+            self.assertEqual([p.name for p in out.glob("*.py")], ["plugin.py"])
             self.assertTrue((out / "plugin.py").is_file())
-            self.assertTrue((out / "server.py").is_file())
             self.assertTrue((out / "orca-plugin.json").is_file())
-            self.assertTrue((out / "flashforge_client.py").is_file())
+            self.assertTrue((out / "lib" / "server.py").is_file())
+            self.assertTrue((out / "lib" / "bridge_services.py").is_file())
+            self.assertTrue((out / "lib" / "flashforge_client.py").is_file())
             self.assertTrue((out / "templates" / "index.html").is_file())
             self.assertTrue((out / "config-example.json").is_file())
 

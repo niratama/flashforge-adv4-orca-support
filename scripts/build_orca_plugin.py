@@ -14,13 +14,14 @@ def build_plugin(output_dir: Path = DIST_DIR) -> Path:
     if output_dir.exists():
         shutil.rmtree(output_dir)
     (output_dir / "templates").mkdir(parents=True, exist_ok=True)
+    (output_dir / "lib").mkdir(parents=True, exist_ok=True)
 
     files_to_copy = [
         (PLUGIN_SRC / "plugin.py", output_dir / "plugin.py"),
-        (PLUGIN_SRC / "server.py", output_dir / "server.py"),
         (PLUGIN_SRC / "orca-plugin.json", output_dir / "orca-plugin.json"),
-        (REPO_ROOT / "bridge_services.py", output_dir / "bridge_services.py"),
-        (REPO_ROOT / "flashforge_client.py", output_dir / "flashforge_client.py"),
+        (PLUGIN_SRC / "server.py", output_dir / "lib" / "server.py"),
+        (REPO_ROOT / "bridge_services.py", output_dir / "lib" / "bridge_services.py"),
+        (REPO_ROOT / "flashforge_client.py", output_dir / "lib" / "flashforge_client.py"),
         (REPO_ROOT / "templates" / "index.html", output_dir / "templates" / "index.html"),
         (REPO_ROOT / "config-example.json", output_dir / "config-example.json"),
     ]

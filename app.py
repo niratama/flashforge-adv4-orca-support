@@ -192,6 +192,42 @@ def create_app(
         except FlashforgeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 502
 
+    @app.post("/api/printer/temperature/nozzle")
+    def printer_nozzle_temp():
+        payload = request.get_json(silent=True) or {}
+        try:
+            target = int(payload["target"])
+            ff_client.set_nozzle_temp(target)
+            return jsonify({"ok": True, "target": target})
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except FlashforgeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+
+    @app.post("/api/printer/temperature/bed")
+    def printer_bed_temp():
+        payload = request.get_json(silent=True) or {}
+        try:
+            target = int(payload["target"])
+            ff_client.set_bed_temp(target)
+            return jsonify({"ok": True, "target": target})
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except FlashforgeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+
+    @app.post("/api/printer/speed")
+    def printer_speed():
+        payload = request.get_json(silent=True) or {}
+        try:
+            percent = int(payload["percent"])
+            ff_client.set_print_speed(percent)
+            return jsonify({"ok": True, "percent": percent})
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except FlashforgeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+
     # ------------------------------------------------------------------
     # Camera Relay, Snapshots & Temperature History
     # ------------------------------------------------------------------

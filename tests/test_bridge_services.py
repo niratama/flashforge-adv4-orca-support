@@ -162,6 +162,28 @@ class TestBridgeServices(unittest.TestCase):
 
             # Reconnect endpoint
             self.assertEqual(client.post("/api/camera/reconnect").status_code, 200)
+
+            # Live tuning endpoints
+            self.assertEqual(
+                client.post("/api/printer/temperature/nozzle", json={"target": 230}).status_code,
+                200,
+            )
+            mock_client.set_nozzle_temp.assert_called_once_with(230)
+            self.assertEqual(
+                client.post("/api/printer/temperature/bed", json={"target": 60}).status_code,
+                200,
+            )
+            mock_client.set_bed_temp.assert_called_once_with(60)
+            self.assertEqual(
+                client.post("/api/printer/speed", json={"percent": 90}).status_code,
+                200,
+            )
+            mock_client.set_print_speed.assert_called_once_with(90)
+            self.assertEqual(
+                client.post("/api/printer/speed", json={}).status_code,
+                400,
+            )
+
             services["monitor"].stop()
 
     def test_plugin_server_endpoints_for_history_and_snapshots(self) -> None:

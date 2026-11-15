@@ -291,6 +291,24 @@ class FlashforgeClient:
             return self.send_command("~M146 r255 g255 b255 F0")
         return self.send_command("~M146 r0 g0 b0 F0")
 
+    def set_nozzle_temp(self, temp: int) -> str:
+        target = int(temp)
+        if not 0 <= target <= 300:
+            raise ValueError("Nozzle temperature must be between 0 and 300")
+        return self.send_command(f"~M104 S{target} T0")
+
+    def set_bed_temp(self, temp: int) -> str:
+        target = int(temp)
+        if not 0 <= target <= 120:
+            raise ValueError("Bed temperature must be between 0 and 120")
+        return self.send_command(f"~M140 S{target}")
+
+    def set_print_speed(self, percent: int) -> str:
+        speed = int(percent)
+        if not 10 <= speed <= 200:
+            raise ValueError("Print speed must be between 10 and 200%")
+        return self.send_command(f"~M663 S{speed}")
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         """Keep only the safe basename for 0:/user/<filename>."""

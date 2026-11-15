@@ -137,11 +137,24 @@ class TestFlashforgeClient(unittest.TestCase):
         self.client.cancel_print()
         self.client.set_led(True)
         self.client.set_led(False)
+        self.client.set_nozzle_temp(230)
+        self.client.set_bed_temp(60)
+        self.client.set_print_speed(90)
         self.assertIn("~M25", self.server.received_commands)
         self.assertIn("~M24", self.server.received_commands)
         self.assertIn("~M26", self.server.received_commands)
         self.assertIn("~M146 r255 g255 b255 F0", self.server.received_commands)
         self.assertIn("~M146 r0 g0 b0 F0", self.server.received_commands)
+        self.assertIn("~M104 S230 T0", self.server.received_commands)
+        self.assertIn("~M140 S60", self.server.received_commands)
+        self.assertIn("~M663 S90", self.server.received_commands)
+
+        with self.assertRaises(ValueError):
+            self.client.set_nozzle_temp(350)
+        with self.assertRaises(ValueError):
+            self.client.set_bed_temp(150)
+        with self.assertRaises(ValueError):
+            self.client.set_print_speed(5)
 
     def test_connection_error(self) -> None:
         bad_client = FlashforgeClient("127.0.0.1", port=1, timeout=0.5)

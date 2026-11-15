@@ -30,13 +30,16 @@ Flashforge Adventurer 4（`Control Success V2.1.` ファームウェア）の TC
 | コマンド | 用途 | 応答例 |
 | :--- | :--- | :--- |
 | `~M115\r\n` | 機種・ファームウェア情報 | `Machine Type: ...` 〜 `ok` |
-| `~M105\r\n` | ノズル・ベッド温度 | `CMD M105 Received.\r\nT0:29/0 B:26/0\r\nok` |
+| `~M105\r\n` | ヘッド・プラットフォーム温度 | `CMD M105 Received.\r\nT0:29/0 B:26/0\r\nok` |
 | `~M27\r\n` | SD/内部ストレージ造形進捗 | `CMD M27 Received.\r\nSD printing byte 0/100\r\nLayer: 0/0\r\nok` |
 | `~M119\r\n` | 機械状態・LED・現在ファイル | `Endstop: ...` / `MachineStatus: READY` / `MoveMode: READY` / `LED: 0` / `CurrentFile: ` 〜 `ok` |
 | `~M25\r\n` | 一時停止 | `ok` |
 | `~M24\r\n` | 再開 | `ok` |
 | `~M26\r\n` | 造形キャンセル | `ok` |
 | `~M146 r255 g255 b255 F0\r\n` | 庫内 LED 点灯（消灯は `r0 g0 b0`） | `ok` |
+| `~M104 S230 T0\r\n` | ヘッド目標温度の設定（印刷中も可） | `CMD M104 Received.\r\nok` |
+| `~M140 S60\r\n` | プラットフォーム目標温度の設定（印刷中も可） | `CMD M140 Received.\r\nok` |
+| `~M663 S90\r\n` | プリント速度（%）の変更（例: `90`, `100`） | `CMD M663 Received.\r\nok` |
 
 ※ FlashPrint の接続時には上記に加えて `~M650\r\n`（`X: 1.0 Y: 0.5`）および `~M114\r\n`（現在座標）も送信されていました。
 

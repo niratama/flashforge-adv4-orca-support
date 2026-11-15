@@ -27,12 +27,13 @@ from flashforge_client import FlashforgeClient, FlashforgeError
 logger = logging.getLogger(__name__)
 
 PLUGIN_DIR = Path(__file__).resolve().parent
+PLUGIN_ROOT = PLUGIN_DIR.parent if PLUGIN_DIR.name == "lib" else PLUGIN_DIR
 REPO_ROOT = PLUGIN_DIR.parent
 
 
 def _resolve_asset(relative_path: str) -> Path:
-    """Locate an asset in the plugin directory first, then the repo root."""
-    local = PLUGIN_DIR / relative_path
+    """Locate an asset in the plugin root directory first, then the repo root."""
+    local = PLUGIN_ROOT / relative_path
     if local.exists():
         return local
     return REPO_ROOT / relative_path
@@ -284,6 +285,31 @@ def _make_handler(
                     self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": str(exc)})
                 return
 
+            if path in {
+                "/api/printer/temperature/nozzle",
+                "/api/printer/temperature/bed",
+                "/api/printer/speed",
+            }:
+                try:
+                    payload = json.loads(body.decode("utf-8")) if body else {}
+                    if path == "/api/printer/temperature/nozzle":
+                        val = int(payload["target"])
+                        ff_client.set_nozzle_temp(val)
+                        self._send_json(HTTPStatus.OK, {"ok": True, "target": val})
+                    elif path == "/api/printer/temperature/bed":
+                        val = int(payload["target"])
+                        ff_client.set_bed_temp(val)
+                        self._send_json(HTTPStatus.OK, {"ok": True, "target": val})
+                    else:
+                        val = int(payload["percent"])
+                        ff_client.set_print_speed(val)
+                        self._send_json(HTTPStatus.OK, {"ok": True, "percent": val})
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                except FlashforgeError as exc:
+                    self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": str(exc)})
+                return
+
             if path == "/api/files/local":
                 content_type = self.headers.get("Content-Type", "")
                 fields, files = parse_multipart_form(content_type, body)
@@ -391,7 +417,7 @@ class BridgeServer:
             self.monitor,
         ) = build_services(
             cfg=self.config,
-            base_dir=PLUGIN_DIR,
+            base_dir=PLUGIN_ROOT,
             ff_client=self.client,
         )
         self._httpd: ThreadingHTTPServer | None = None

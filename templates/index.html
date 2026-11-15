@@ -256,6 +256,37 @@
     .status-msg.error { color: var(--danger); }
     .status-msg.ok { color: var(--accent); }
 
+    .tune-panel {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      display: grid;
+      gap: 8px;
+    }
+
+    .tune-row {
+      display: grid;
+      grid-template-columns: 1fr 90px auto;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+    }
+
+    .tune-row label {
+      color: var(--muted);
+    }
+
+    .tune-input {
+      width: 100%;
+      background: #14171c;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      text-align: right;
+    }
+
     .btn-sm {
       padding: 4px 10px;
       font-size: 0.8rem;
@@ -460,14 +491,14 @@
 
         <div class="temp-grid">
           <div class="metric">
-            <div class="metric-label">ノズル温度 (T0)</div>
+            <div class="metric-label">ヘッド温度 (T0)</div>
             <div class="metric-value">
               <span id="nozzle-actual">--</span>°C
               <span class="metric-target">/ <span id="nozzle-target">--</span>°C</span>
             </div>
           </div>
           <div class="metric">
-            <div class="metric-label">ベッド温度 (Bed)</div>
+            <div class="metric-label">プラットフォーム温度 (Bed)</div>
             <div class="metric-value">
               <span id="bed-actual">--</span>°C
               <span class="metric-target">/ <span id="bed-target">--</span>°C</span>
@@ -493,6 +524,24 @@
           <button type="button" id="led-btn" onclick="toggleLed()">LED: 切替</button>
         </div>
 
+        <div class="tune-panel">
+          <div class="tune-row">
+            <label for="nozzle-input">ヘッド目標温度 (°C)</label>
+            <input id="nozzle-input" class="tune-input" type="number" min="0" max="300" step="1" placeholder="220" />
+            <button type="button" class="btn-sm" onclick="applyNozzleTemp()">設定</button>
+          </div>
+          <div class="tune-row">
+            <label for="bed-input">プラットフォーム目標温度 (°C)</label>
+            <input id="bed-input" class="tune-input" type="number" min="0" max="120" step="1" placeholder="60" />
+            <button type="button" class="btn-sm" onclick="applyBedTemp()">設定</button>
+          </div>
+          <div class="tune-row">
+            <label for="speed-input">プリント速度 (%)</label>
+            <input id="speed-input" class="tune-input" type="number" min="10" max="200" step="5" value="100" />
+            <button type="button" class="btn-sm" onclick="applyPrintSpeed()">設定</button>
+          </div>
+        </div>
+
         <div id="action-msg" class="status-msg"></div>
       </section>
     </div>
@@ -513,10 +562,10 @@
           <div id="chart-tooltip" class="chart-tooltip"></div>
         </div>
         <div class="legend">
-          <span class="legend-item" style="color: #f85149;"><span class="legend-line"></span>ノズル実測</span>
-          <span class="legend-item" style="color: #ff9b96;"><span class="legend-line dashed"></span>ノズル目標</span>
-          <span class="legend-item" style="color: #58a6ff;"><span class="legend-line"></span>ベッド実測</span>
-          <span class="legend-item" style="color: #9bc9ff;"><span class="legend-line dashed"></span>ベッド目標</span>
+          <span class="legend-item" style="color: #f85149;"><span class="legend-line"></span>ヘッド実測</span>
+          <span class="legend-item" style="color: #ff9b96;"><span class="legend-line dashed"></span>ヘッド目標</span>
+          <span class="legend-item" style="color: #58a6ff;"><span class="legend-line"></span>プラットフォーム実測</span>
+          <span class="legend-item" style="color: #9bc9ff;"><span class="legend-line dashed"></span>プラットフォーム目標</span>
         </div>
       </section>
 
@@ -633,6 +682,36 @@
     function toggleLed() {
       const nextState = !currentLedState;
       sendAction("/api/printer/led", `LEDを${nextState ? "ON" : "OFF"}にしました`, { on: nextState });
+    }
+
+    function applyNozzleTemp() {
+      const val = Number(document.getElementById("nozzle-input").value);
+      if (!Number.isFinite(val)) {
+        setActionMessage("ヘッド温度を入力してください", true);
+        return;
+      }
+      const target = Math.round(val);
+      sendAction("/api/printer/temperature/nozzle", `ヘッド目標温度を ${target}°C に設定しました`, { target });
+    }
+
+    function applyBedTemp() {
+      const val = Number(document.getElementById("bed-input").value);
+      if (!Number.isFinite(val)) {
+        setActionMessage("プラットフォーム温度を入力してください", true);
+        return;
+      }
+      const target = Math.round(val);
+      sendAction("/api/printer/temperature/bed", `プラットフォーム目標温度を ${target}°C に設定しました`, { target });
+    }
+
+    function applyPrintSpeed() {
+      const val = Number(document.getElementById("speed-input").value);
+      if (!Number.isFinite(val)) {
+        setActionMessage("プリント速度(%)を入力してください", true);
+        return;
+      }
+      const percent = Math.round(val);
+      sendAction("/api/printer/speed", `プリント速度を ${percent}% に設定しました`, { percent });
     }
 
     function fmtTemp(val) {
@@ -911,8 +990,8 @@
         tooltip.style.display = "block";
         tooltip.innerHTML =
           `<div><strong>${fmtClock(nearest.ts)}</strong></div>` +
-          `<div>ノズル: ${fmtTemp(nearest.nozzle_actual)}°C / ${fmtTemp(nearest.nozzle_target)}°C</div>` +
-          `<div>ベッド: ${fmtTemp(nearest.bed_actual)}°C / ${fmtTemp(nearest.bed_target)}°C</div>`;
+          `<div>ヘッド: ${fmtTemp(nearest.nozzle_actual)}°C / ${fmtTemp(nearest.nozzle_target)}°C</div>` +
+          `<div>プラットフォーム: ${fmtTemp(nearest.bed_actual)}°C / ${fmtTemp(nearest.bed_target)}°C</div>`;
         const left = nx + 12 + tooltip.offsetWidth > w ? nx - tooltip.offsetWidth - 12 : nx + 12;
         tooltip.style.left = `${Math.max(6, left)}px`;
         tooltip.style.top = "10px";

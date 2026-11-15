@@ -30,23 +30,23 @@ WSL 上で手動起動しているブリッジサーバー（`app.py`）を、Wi
 - [x] 標準ライブラリ（`http.server.ThreadingHTTPServer` + `email.parser.BytesParser`）へ置き換えて外部依存ゼロのプラグイン用サーバー（`orca_plugin/server.py`）を実装する
 
 ### Phase 4: Windows 環境での実機検証
-- [ ] Windows 側の `%APPDATA%\OrcaSlicer\orca_plugins\` へプラグインを配置する
-- [ ] OrcaSlicer 2.5.0 起動時にプラグイン認識・権限承認ダイアログが正常に完了することを確認する
-- [ ] Device タブのライブカメラ・ステータス表示・LED・一時停止／再開／キャンセルが動作することを確認する
-- [ ] `Print plate` から `.gcode` → `.gx` 自動ラップ・アップロード・造形開始まで完了することを確認する
-- [ ] OrcaSlicer 終了後に `~M602` が送られ、FlashPrint 等の別クライアントから再接続できることを確認する
+- [x] Windows 側の `%APPDATA%\OrcaSlicer\orca_plugins\` へプラグインを配置する
+- [x] OrcaSlicer 2.5.0 起動時にプラグイン認識・権限承認ダイアログが正常に完了することを確認する
+- [x] Device タブのライブカメラ・ステータス表示・LED・一時停止／再開／キャンセルが動作することを確認する
+- [x] `Print plate` から `.gcode` → `.gx` 自動ラップ・アップロード・造形開始まで完了することを確認する
+- [x] OrcaSlicer 終了後に `~M602` が送られ、FlashPrint 等の別クライアントから再接続できることを確認する
 
 ### Phase 5: ドキュメント整備
-- [ ] [README.md](./README.md) に Windows 版 OrcaSlicer プラグインとしての導入・設定手順を追記する
-- [ ] 単体テスト（`uv run python -m unittest discover -s tests -v`）を更新・全件パスさせる
+- [x] [README.md](./README.md) に Windows 版 OrcaSlicer プラグインとしての導入・設定手順を追記する
+- [x] 単体テスト（`uv run python -m unittest discover -s tests -v`）を更新・全件パスさせる
 
 ---
 
-## 機能拡張 TODO: 印刷中の温度・Z微調整（ライブチューニング）
+## 機能拡張 TODO: 印刷中の温度・プリント速度調整（ライブチューニング）
 
-- [ ] [scripts/tcp_proxy.py](./scripts/tcp_proxy.py) 経由で FlashPrint を Adventurer 4 に接続し、印刷中の以下操作時の TCP `8899` コマンドと応答をキャプチャする
-  - ノズル目標温度の変更（`~M104 S<temp> T0` 等かどうか確認）
-  - ベッド目標温度の変更（`~M140 S<temp>` 等かどうか確認）
-  - Z微調整（`+` / `-` 時に `~M290 Z...` や独自 M コードのどれが送られるか確認）
-- [ ] 確認できた仕様を [PROTOCOL.md](./PROTOCOL.md) に追記する
-- [ ] [flashforge_client.py](./flashforge_client.py)・[app.py](./app.py)・[orca_plugin/server.py](./orca_plugin/server.py)・[templates/index.html](./templates/index.html) に温度設定／Z微調整の API と UI を実装し、単体テストを追加する
+- [x] [scripts/tcp_proxy.py](./scripts/tcp_proxy.py) 経由で FlashPrint を Adventurer 4 に接続し、印刷中の以下操作時の TCP `8899` コマンドと応答をキャプチャする
+  - ヘッド目標温度の変更: `~M104 S<temp> T0\r\n` → `CMD M104 Received.\r\nok`
+  - プラットフォーム目標温度の変更: `~M140 S<temp>\r\n` → `CMD M140 Received.\r\nok`
+  - プリント速度（%）の変更: `~M663 S<percent>\r\n` → `CMD M663 Received.\r\nok`
+- [x] 確認できた仕様を [PROTOCOL.md](./PROTOCOL.md) に追記する
+- [x] [flashforge_client.py](./flashforge_client.py)・[app.py](./app.py)・[orca_plugin/server.py](./orca_plugin/server.py)・[templates/index.html](./templates/index.html) に温度設定／プリント速度変更の API と UI を実装し、単体テストを追加する
