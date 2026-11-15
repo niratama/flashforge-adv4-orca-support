@@ -50,3 +50,21 @@ WSL 上で手動起動しているブリッジサーバー（`app.py`）を、Wi
   - プリント速度（%）の変更: `~M663 S<percent>\r\n` → `CMD M663 Received.\r\nok`
 - [x] 確認できた仕様を [PROTOCOL.md](./PROTOCOL.md) に追記する
 - [x] [flashforge_client.py](./flashforge_client.py)・[app.py](./app.py)・[orca_plugin/server.py](./orca_plugin/server.py)・[templates/index.html](./templates/index.html) に温度設定／プリント速度変更の API と UI を実装し、単体テストを追加する
+
+---
+
+## 将来拡張 TODO: パターン B（ネイティブ統合プラグイン）への段階的移行準備
+
+OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabilityBase` / `orca.printer_agent.PrinterAgentBase`）を踏まえ、現行のブリッジサーバー・パターン A プラグインを維持したまま、将来的なパターン B 化を見据えてモジュール分割とテスト拡充を進める。
+
+### 設計方針メモ
+- **移行戦略（ハイブリッド段階移行）**
+  - **Step 1（UI 統合: `Pages`）**: `PagesPluginCapabilityBase`（`window.orca.postMessage` / `onMessage`）で専用タブを構築。遅延ロード・リロード時の再初期化に備え、状態は Python 側で保持し UI 起動時に `{type: "ready"}` で同期する。
+  - **Step 2（完全ネイティブ: `PrinterAgent`）**: `PrinterAgentBase`（`orca.PluginType.PrinterConnection`）を実装し、`.gcode` → `.gx` ラップ・送信を直接ハンドリングする。なお OrcaSlicer 側で `Preferences -> Developer -> Experimental Features -> Use printer agents instead of print hosts`（デフォルト OFF）およびプリンター設定の `Printer Agent` 選択が必要なため、当面はパターン A（OctoPrint 互換受信）と共存・切替可能にする。
+- **カメラ配信**: `Pages` タブではカメラ URL 直接参照を基本とし、必要に応じて `CameraRelay` 経由のフレーム配信（低 fps 上限）を選択できる構成を想定。
+
+### 準備タスク（現行実装のリファクタリング・テスト拡充）
+- [ ] HTTP 非依存のプラグインランタイム／コントローラー層（シングルトン管理・設定読み書き・コマンドディスパッチ）を切り出し、[app.py](./app.py) と [orca_plugin/server.py](./orca_plugin/server.py) の共通ロジックを集約する
+- [ ] [templates/index.html](./templates/index.html) の通信処理をトランスポート層（`fetch` ベース / 将来の `window.orca` ベース）として抽象化する
+- [ ] 切り出したランタイム／コントローラー層およびエッジケース（再接続、ライブチューニング、スナップショット、`.gx` 変換）に対する単体テストを拡充する
+- [ ] （実機検証時）OrcaSlicer 2.5.0 上で `orca.pages` / `orca.printer_agent` の実クラス・メソッドシグネチャを確認し、プロトタイプ検証を行う
