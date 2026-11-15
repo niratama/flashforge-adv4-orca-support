@@ -9,8 +9,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_file
 
+from bridge_services import build_services
 from flashforge_client import FlashforgeClient, FlashforgeError
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ def configure_logging(debug: bool = False) -> None:
 def create_app(
     config: dict[str, Any] | None = None,
     client: FlashforgeClient | None = None,
+    start_background: bool | None = None,
 ) -> Flask:
     cfg = config or load_config()
     printer_cfg = cfg["printer"]
@@ -82,11 +84,27 @@ def create_app(
         transfer_timeout=float(printer_cfg.get("transfer_timeout", 30.0)),
     )
 
+    temp_history, camera_relay, snapshot_manager, monitor = build_services(
+        cfg=cfg,
+        base_dir=BASE_DIR,
+        ff_client=ff_client,
+    )
+    should_start_bg = (client is None) if start_background is None else start_background
+    if should_start_bg:
+        monitor.start()
+
     if client is None:
         atexit.register(ff_client.close)
+    atexit.register(monitor.stop)
 
     app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
     app.config["PRINTER_CONFIG"] = printer_cfg
+    app.config["BRIDGE_SERVICES"] = {
+        "temp_history": temp_history,
+        "camera_relay": camera_relay,
+        "snapshot_manager": snapshot_manager,
+        "monitor": monitor,
+    }
 
     # ------------------------------------------------------------------
     # Device Tab Web UI
@@ -105,7 +123,9 @@ def create_app(
     @app.get("/api/printer/status")
     def printer_status():
         try:
-            return jsonify(ff_client.get_full_status())
+            status = ff_client.get_full_status()
+            monitor.observe_status(status)
+            return jsonify(status)
         except FlashforgeError as exc:
             return jsonify(
                 {
@@ -168,6 +188,45 @@ def create_app(
             return jsonify({"ok": True, "led": on})
         except FlashforgeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 502
+
+    # ------------------------------------------------------------------
+    # Camera Relay, Snapshots & Temperature History
+    # ------------------------------------------------------------------
+
+    @app.get("/api/camera/stream")
+    def camera_stream():
+        return Response(
+            camera_relay.iter_mjpeg_frames(),
+            mimetype="multipart/x-mixed-replace; boundary=frame",
+        )
+
+    @app.post("/api/camera/reconnect")
+    def camera_reconnect():
+        camera_relay.request_reconnect()
+        return jsonify({"ok": True})
+
+    @app.get("/api/camera/snapshots")
+    def camera_snapshots_list():
+        return jsonify(snapshot_manager.to_payload())
+
+    @app.post("/api/camera/snapshots")
+    def camera_snapshots_capture():
+        frame = camera_relay.get_latest_frame(wait_timeout=5.0)
+        if not frame:
+            return jsonify({"ok": False, "error": "カメラフレームを取得できませんでした"}), 502
+        saved = snapshot_manager.save_frame(frame)
+        return jsonify({"ok": True, "snapshot": saved}), 201
+
+    @app.get("/api/camera/snapshots/<filename>")
+    def camera_snapshot_file(filename: str):
+        path = snapshot_manager.get_snapshot_path(filename)
+        if path is None:
+            return jsonify({"error": "Snapshot not found"}), 404
+        return send_file(path, mimetype="image/jpeg")
+
+    @app.get("/api/history/temperature")
+    def temperature_history():
+        return jsonify(temp_history.to_payload())
 
     # ------------------------------------------------------------------
     # OctoPrint Compatibility API (for OrcaSlicer)

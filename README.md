@@ -9,10 +9,15 @@ flashforge-adv4-orca-support/
 ├── app.py                  # Flask Web サーバー & OctoPrint 互換 API
 ├── config-example.json     # プリンター IP / ポート / カメラ URL / サーバー設定テンプレート
 ├── flashforge_client.py    # Flashforge TCP (8899) クライアント
+├── orca_plugin/            # OrcaSlicer 2.5.0+ 用ゼロ依存プラグイン
+│   ├── orca-plugin.json
+│   ├── plugin.py
+│   └── server.py
 ├── PROTOCOL.md             # Adventurer 4 TCP 通信仕様メモ
 ├── pyproject.toml          # プロジェクト定義 & 依存パッケージ (uv)
 ├── uv.lock                 # ロックファイル
 ├── scripts/
+│   ├── build_orca_plugin.py # dist/flashforge_adv4_bridge/ 生成スクリプト
 │   └── tcp_proxy.py        # TCP 8899 通信解析用プロキシ
 ├── templates/
 │   └── index.html          # Device タブ用ダッシュボード UI
@@ -86,3 +91,19 @@ uv run python -m unittest discover -s tests -v
 4. **API Key** は任意の文字列（または空欄、OrcaSlicer が要求する場合は `dummy` など）を入力し、**Test** を押して接続成功を確認します。
 5. **Device UI（デバイス画面）** を利用する場合も同じく `http://localhost:5000` が OrcaSlicer 内の **Device タブ** に表示されます。
 6. スライス後、**Print plate**（または Upload and Print）を実行すると `POST /api/files/local` 経由で Adventurer 4 へ Gコードが転送され、印刷が開始されます。
+
+## 3. Windows 版 OrcaSlicer 2.5.0+ プラグインとして使う（パターン A）
+
+外部ライブラリ不要（Python 標準ライブラリのみ）で動作するプラグインバンドルを生成できます。
+
+```bash
+uv run python scripts/build_orca_plugin.py
+```
+
+生成された `dist/flashforge_adv4_bridge/` フォルダを Windows 側の OrcaSlicer プラグインディレクトリへコピーし、`config.json`（無ければ `config-example.json` をリネーム）にプリンター IP を設定してください：
+
+```text
+%APPDATA%\OrcaSlicer\orca_plugins\flashforge_adv4_bridge\
+```
+
+OrcaSlicer を起動するとバックグラウンドで `http://localhost:5000` が自動起動します（初回のみネットワーク通信等の権限確認ダイアログが表示されます）。

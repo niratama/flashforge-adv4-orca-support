@@ -15,19 +15,19 @@ WSL 上で手動起動しているブリッジサーバー（`app.py`）を、Wi
 ## タスクリスト
 
 ### Phase 1: OrcaSlicer 2.5.0 プラグイン仕様の確認
-- [ ] `orca-plugin.json` の必須フィールドとエントリポイント定義を確認する
-- [ ] `@orca.plugin` / `register_capabilities()` でバックグラウンド常駐に適した capability（`Scripts` / `Pages` / `Printer Agents` 等）を確認する
-- [ ] ローカル配置形式（ディレクトリ + `.py` / `.whl`、PEP 723 依存宣言）と監査フック（`orca.request_permissions()`）の挙動を確認する
+- [x] `orca-plugin.json` の必須フィールドとエントリポイント定義を確認する
+- [x] `@orca.plugin` / `register_capabilities()` でバックグラウンド常駐に適した capability（`ScriptPluginCapabilityBase`）を確認する
+- [x] ローカル配置形式（ディレクトリ + `.py`、PEP 723 依存宣言）と監査フック（`orca.request_permissions()`）の挙動を確認する
 
 ### Phase 2: プラグイン用パッケージ・エントリポイント実装
-- [ ] プラグインディレクトリ（または `.whl` 用構成）を作成する
-- [ ] プラグイン起動時にブリッジサーバーを `daemon=True` スレッドで起動し、終了時に `FlashforgeClient.close()`（`~M602`）を呼ぶライフサイクル処理を追加する
-- [ ] プラグイン配置先ディレクトリ基準で `config.json`（または [config-example.json](./config-example.json)）および [templates/index.html](./templates/index.html) を参照できるようパス解決を調整する
-- [ ] ポート `5000` が既に使用中の場合（別インスタンス起動中など）のエラーハンドリング／通知を追加する
+- [x] プラグインディレクトリ（`orca_plugin/`）とビルドスクリプト（`scripts/build_orca_plugin.py`）を作成する
+- [x] プラグイン起動時にブリッジサーバーを `daemon=True` スレッドで起動し、終了時に `FlashforgeClient.close()`（`~M602`）を呼ぶライフサイクル処理を追加する
+- [x] プラグイン配置先ディレクトリ基準で `config.json`（または [config-example.json](./config-example.json)）および [templates/index.html](./templates/index.html) を参照できるようパス解決を調整する
+- [x] ポート `5000` が既に使用中の場合（別インスタンス起動中など）のエラーハンドリング／通知を追加する
 
 ### Phase 3: 依存関係と権限の整理
-- [ ] `orca.request_permissions()` で必要なネットワーク権限（プリンター `8899`、カメラ `8080`、ローカル待受 `5000`）を明示する
-- [ ] `Flask` 依存をプラグイン側で解決するか、標準ライブラリ（`http.server.ThreadingHTTPServer`）へ置き換えて外部依存ゼロにするかを決定・実装する
+- [x] `orca.request_permissions()` で必要なネットワーク権限（プリンター `8899`、カメラ `8080`、ローカル待受 `5000`）を明示する
+- [x] 標準ライブラリ（`http.server.ThreadingHTTPServer` + `email.parser.BytesParser`）へ置き換えて外部依存ゼロのプラグイン用サーバー（`orca_plugin/server.py`）を実装する
 
 ### Phase 4: Windows 環境での実機検証
 - [ ] Windows 側の `%APPDATA%\OrcaSlicer\orca_plugins\` へプラグインを配置する

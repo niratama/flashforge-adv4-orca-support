@@ -5,8 +5,10 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Local config, logs & temporary files
+# Build outputs, local config, logs & temporary files
+dist/
 config.json
+snapshots/
 tmp/
 *.log
 

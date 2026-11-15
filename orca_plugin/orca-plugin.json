@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "flashforge-adv4-bridge",
+  "publisher": "local",
+  "name": "Flashforge Adventurer 4 Bridge",
+  "version": "0.1.0",
+  "description": "Starts a local OctoPrint-compatible bridge and Device tab Web UI for Flashforge Adventurer 4.",
+  "entry": "plugin.py",
+  "engines": {
+    "orca": ">=2.5.0"
+  }
+}

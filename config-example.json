@@ -10,5 +10,16 @@
     "host": "0.0.0.0",
     "port": 5000,
     "debug": false
+  },
+  "camera": {
+    "snapshot_enabled": true,
+    "snapshot_only_while_printing": true,
+    "snapshot_interval_seconds": 60,
+    "snapshot_max_count": 200,
+    "snapshot_dir": "snapshots"
+  },
+  "history": {
+    "temperature_hours": 4.0,
+    "sample_interval_seconds": 5.0
   }
 }
