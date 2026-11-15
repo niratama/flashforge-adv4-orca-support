@@ -152,3 +152,7 @@ uv run python scripts/build_orca_plugin.py
 ```
 
 OrcaSlicer を起動するとバックグラウンドで `http://localhost:5000` が自動起動します（初回のみネットワーク通信等の権限確認ダイアログが表示されます）。
+
+## ライセンス
+
+[MIT License](LICENSE)

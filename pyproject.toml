@@ -3,6 +3,7 @@ name = "flashforge-adv4-orca-support"
 version = "0.1.0"
 description = "Local bridge server (Web UI + OctoPrint-compatible API) for Flashforge Adventurer 4 and OrcaSlicer"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "Flask>=3.0.0",
