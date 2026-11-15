@@ -144,10 +144,26 @@ class TestPluginBridgeServer(unittest.TestCase):
             self.assertTrue((out / "plugin.py").is_file())
             self.assertTrue((out / "orca-plugin.json").is_file())
             self.assertTrue((out / "lib" / "server.py").is_file())
+            self.assertTrue((out / "lib" / "bridge_controller.py").is_file())
             self.assertTrue((out / "lib" / "bridge_services.py").is_file())
             self.assertTrue((out / "lib" / "flashforge_client.py").is_file())
             self.assertTrue((out / "templates" / "index.html").is_file())
             self.assertTrue((out / "config-example.json").is_file())
+
+    def test_stop_does_not_hang_with_open_camera_stream(self) -> None:
+        import time
+
+        self.assertTrue(self.bridge._httpd.daemon_threads)
+        self.assertFalse(self.bridge._httpd.block_on_close)
+
+        resp = urllib.request.urlopen(f"{self.base_url}/api/camera/stream", timeout=2)
+        try:
+            start = time.monotonic()
+            self.bridge.stop()
+            elapsed = time.monotonic() - start
+            self.assertLess(elapsed, 2.0)
+        finally:
+            resp.close()
 
 
 if __name__ == "__main__":

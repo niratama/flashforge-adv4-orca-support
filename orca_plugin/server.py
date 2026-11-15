@@ -263,6 +263,14 @@ def _make_handler(
     return BridgeRequestHandler
 
 
+class _DaemonThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with daemon request threads so shutdown never hangs on open streams."""
+
+    allow_reuse_address = True
+    daemon_threads = True
+    block_on_close = False
+
+
 class BridgeServer:
     """Managed background HTTP server wrapping ThreadingHTTPServer + BridgeController."""
 
@@ -306,8 +314,7 @@ class BridgeServer:
             controller=self.controller,
             template_path=self._template_path,
         )
-        ThreadingHTTPServer.allow_reuse_address = True
-        self._httpd = ThreadingHTTPServer((self.host, self.port), handler_cls)
+        self._httpd = _DaemonThreadingHTTPServer((self.host, self.port), handler_cls)
         self.port = int(self._httpd.server_address[1])
         self._thread = threading.Thread(
             target=self._httpd.serve_forever,
@@ -321,6 +328,7 @@ class BridgeServer:
 
     def stop(self) -> None:
         """Shut down the HTTP server and release the printer control session (~M602)."""
+        self.controller.stop()
         if self._httpd is not None:
             try:
                 self._httpd.shutdown()
@@ -332,7 +340,6 @@ class BridgeServer:
         if self._thread is not None:
             self._thread.join(timeout=3.0)
             self._thread = None
-        self.controller.stop()
 
 
 if __name__ == "__main__":
