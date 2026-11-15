@@ -75,7 +75,21 @@
       background: var(--muted);
     }
     .dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .dot.warn { background: var(--warn); }
     .dot.offline { background: var(--danger); }
+
+    .cam-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #14171c;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
 
     .grid {
       display: grid;
@@ -92,6 +106,7 @@
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 16px;
+      min-width: 0;
     }
 
     .card h2 {
@@ -330,7 +345,7 @@
 
     .snapshot-preview {
       width: 100%;
-      aspect-ratio: 4 / 3;
+      height: 240px;
       background: #0b0d10;
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -343,8 +358,10 @@
     }
 
     .snapshot-preview img {
-      width: 100%;
-      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       object-fit: contain;
       display: block;
     }
@@ -420,6 +437,10 @@
         <h2>
           <span>ライブカメラ</span>
           <div class="header-actions">
+            <span id="camera-status-badge" class="cam-badge">
+              <span id="cam-dot" class="dot"></span>
+              <span id="cam-status-text">確認中</span>
+            </span>
             <button type="button" class="btn-sm" onclick="captureSnapshot()">撮影</button>
             <button type="button" class="btn-sm" onclick="reconnectCamera()">再接続</button>
           </div>
@@ -527,18 +548,36 @@
   <script>
     const CAMERA_URL = {{ camera_url | tojson }};
     let currentLedState = false;
+    let cameraRetryTimer = null;
 
     function onCameraError() {
       document.getElementById("camera-img").style.display = "none";
       document.getElementById("camera-fallback").style.display = "flex";
+      if (!cameraRetryTimer) {
+        cameraRetryTimer = setTimeout(() => {
+          cameraRetryTimer = null;
+          const img = document.getElementById("camera-img");
+          img.style.display = "block";
+          document.getElementById("camera-fallback").style.display = "none";
+          img.src = "/api/camera/stream?_t=" + Date.now();
+        }, 3000);
+      }
     }
 
     function onCameraLoad() {
+      if (cameraRetryTimer) {
+        clearTimeout(cameraRetryTimer);
+        cameraRetryTimer = null;
+      }
       document.getElementById("camera-img").style.display = "block";
       document.getElementById("camera-fallback").style.display = "none";
     }
 
     async function reconnectCamera() {
+      if (cameraRetryTimer) {
+        clearTimeout(cameraRetryTimer);
+        cameraRetryTimer = null;
+      }
       try {
         await fetch("/api/camera/reconnect", { method: "POST" });
       } catch (_) {}
@@ -658,9 +697,47 @@
         if (data.connected) {
           appendTempSample(nozzle, bed);
         }
+        updateCameraStatus(data.camera);
       } catch (err) {
         dot.className = "dot offline";
         connText.textContent = "サーバー通信エラー";
+        updateCameraStatus(null);
+      }
+    }
+
+    function updateCameraStatus(cam) {
+      const dot = document.getElementById("cam-dot");
+      const text = document.getElementById("cam-status-text");
+      const badge = document.getElementById("camera-status-badge");
+      if (!cam) {
+        dot.className = "dot";
+        text.textContent = "不明";
+        badge.title = "";
+        return;
+      }
+
+      const viewers = Number(cam.active_clients || 0);
+      const age = cam.last_frame_age_seconds;
+      const viewerLabel = viewers > 0 ? ` (視聴:${viewers})` : "";
+      const ageLabel = age !== null && age !== undefined ? ` / 最終フレーム ${age}s前` : "";
+
+      if (cam.upstream_connected) {
+        if (age !== null && age !== undefined && age >= 10) {
+          dot.className = "dot warn";
+          text.textContent = `応答待ち${viewerLabel}`;
+        } else {
+          dot.className = "dot online";
+          text.textContent = `受信中${viewerLabel}`;
+        }
+        badge.title = `カメラ接続中${ageLabel}`;
+      } else if (cam.last_error) {
+        dot.className = "dot offline";
+        text.textContent = "切断 / 再接続待ち";
+        badge.title = cam.last_error;
+      } else {
+        dot.className = "dot";
+        text.textContent = cam.auto_snapshot_active ? "接続準備中" : "待機中";
+        badge.title = `視聴:${viewers}${ageLabel}`;
       }
     }
 
@@ -855,6 +932,9 @@
       drawTempChart();
     });
     window.addEventListener("resize", drawTempChart);
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(drawTempChart).observe(document.getElementById("chart-wrap"));
+    }
 
     // --- Camera Snapshot History ---
     let snapshotsChrono = [];

@@ -135,8 +135,12 @@ class TestBridgeServices(unittest.TestCase):
             services["camera_relay"]._publish_frame(b"\xff\xd8TESTJPEG\xff\xd9")
 
             client = app.test_client()
-            # Trigger status poll -> records temperature history
-            self.assertEqual(client.get("/api/printer/status").status_code, 200)
+            # Trigger status poll -> records temperature history & includes camera relay status
+            status_res = client.get("/api/printer/status")
+            self.assertEqual(status_res.status_code, 200)
+            status_json = status_res.get_json()
+            self.assertIn("camera", status_json)
+            self.assertTrue(status_json["camera"]["has_frame"])
             hist_res = client.get("/api/history/temperature")
             self.assertEqual(hist_res.status_code, 200)
             hist_data = hist_res.get_json()

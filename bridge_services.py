@@ -242,9 +242,11 @@ class CameraRelay:
         self._auto_snapshot_active: bool = False
         self._last_demand_at: float = 0.0
         self._last_error: str | None = None
+        self._upstream_connected: bool = False
         self._reconnect_requested: bool = False
         self._stopped: bool = False
         self._thread: threading.Thread | None = None
+        self._active_response: Any = None
 
     def set_auto_snapshot_active(self, active: bool) -> None:
         with self._cond:
@@ -258,15 +260,44 @@ class CameraRelay:
         with self._cond:
             self._reconnect_requested = True
             self._last_demand_at = time.monotonic()
+            resp = self._active_response
             self._ensure_thread_locked()
             self._cond.notify_all()
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     def stop(self) -> None:
         with self._cond:
             self._stopped = True
+            resp = self._active_response
             self._cond.notify_all()
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
+
+    def get_status(self) -> dict[str, Any]:
+        """Return current upstream/client relay status for UI visualization."""
+        with self._cond:
+            age = (
+                round(max(0.0, time.time() - self._latest_frame_at), 1)
+                if self._latest_frame_at > 0
+                else None
+            )
+            return {
+                "upstream_connected": self._upstream_connected,
+                "active_clients": self._active_clients,
+                "auto_snapshot_active": self._auto_snapshot_active,
+                "has_frame": self._latest_frame is not None,
+                "last_frame_age_seconds": age,
+                "last_error": self._last_error,
+            }
 
     def _has_demand_locked(self) -> bool:
         if self._active_clients > 0 or self._auto_snapshot_active:
@@ -304,7 +335,7 @@ class CameraRelay:
                 self._cond.wait(timeout=remaining)
             return self._latest_frame
 
-    def iter_mjpeg_frames(self, frame_timeout: float = 10.0) -> Iterator[bytes]:
+    def iter_mjpeg_frames(self, frame_timeout: float = 5.0) -> Iterator[bytes]:
         """Yield multipart MJPEG chunks for HTTP streaming responses."""
         with self._cond:
             self._active_clients += 1
@@ -319,10 +350,13 @@ class CameraRelay:
                         break
                     if self._frame_seq == last_seq:
                         self._cond.wait(timeout=frame_timeout)
-                    if self._stopped or self._frame_seq == last_seq:
+                    if self._stopped:
                         break
                     frame = self._latest_frame
-                    last_seq = self._frame_seq
+                    if self._frame_seq != last_seq:
+                        last_seq = self._frame_seq
+                    elif frame is None:
+                        continue
 
                 if not frame:
                     continue
@@ -357,7 +391,12 @@ class CameraRelay:
 
             response = None
             try:
+                logger.info("Connecting camera relay to %s", self.camera_url)
                 response = self._opener(self.camera_url, timeout=self.connect_timeout)
+                with self._cond:
+                    self._active_response = response
+                    self._upstream_connected = True
+                    self._last_error = None
                 buf = bytearray()
                 while True:
                     with self._cond:
@@ -365,6 +404,7 @@ class CameraRelay:
                             break
                     chunk = response.read(8192)
                     if not chunk:
+                        logger.warning("Camera relay upstream EOF (%s)", self.camera_url)
                         break
                     buf.extend(chunk)
                     while True:
@@ -386,8 +426,12 @@ class CameraRelay:
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 with self._cond:
                     self._last_error = str(exc)
-                logger.debug("Camera relay connection ended (%s): %s", self.camera_url, exc)
+                logger.warning("Camera relay connection ended (%s): %s", self.camera_url, exc)
             finally:
+                with self._cond:
+                    self._upstream_connected = False
+                    if self._active_response is response:
+                        self._active_response = None
                 if response is not None:
                     try:
                         response.close()

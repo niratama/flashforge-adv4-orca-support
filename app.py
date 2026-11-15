@@ -122,9 +122,11 @@ def create_app(
 
     @app.get("/api/printer/status")
     def printer_status():
+        cam_status = camera_relay.get_status()
         try:
             status = ff_client.get_full_status()
             monitor.observe_status(status)
+            status["camera"] = cam_status
             return jsonify(status)
         except FlashforgeError as exc:
             return jsonify(
@@ -145,6 +147,7 @@ def create_app(
                         "bytes_total": 0,
                         "percent": 0.0,
                     },
+                    "camera": cam_status,
                 }
             )
 

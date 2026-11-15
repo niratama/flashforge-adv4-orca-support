@@ -167,9 +167,11 @@ def _make_handler(
                 return
 
             if path == "/api/printer/status":
+                cam_status = camera_relay.get_status()
                 try:
                     status = ff_client.get_full_status()
                     monitor.observe_status(status)
+                    status["camera"] = cam_status
                     self._send_json(HTTPStatus.OK, status)
                 except FlashforgeError as exc:
                     self._send_json(
@@ -191,6 +193,7 @@ def _make_handler(
                                 "bytes_total": 0,
                                 "percent": 0.0,
                             },
+                            "camera": cam_status,
                         },
                     )
                 return
