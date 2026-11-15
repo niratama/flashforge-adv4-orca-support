@@ -64,7 +64,7 @@ OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabi
 - **カメラ配信**: `Pages` タブではカメラ URL 直接参照を基本とし、必要に応じて `CameraRelay` 経由のフレーム配信（低 fps 上限）を選択できる構成を想定。
 
 ### 準備タスク（現行実装のリファクタリング・テスト拡充）
-- [ ] HTTP 非依存のプラグインランタイム／コントローラー層（シングルトン管理・設定読み書き・コマンドディスパッチ）を切り出し、[app.py](./app.py) と [orca_plugin/server.py](./orca_plugin/server.py) の共通ロジックを集約する
-- [ ] [templates/index.html](./templates/index.html) の通信処理をトランスポート層（`fetch` ベース / 将来の `window.orca` ベース）として抽象化する
-- [ ] 切り出したランタイム／コントローラー層およびエッジケース（再接続、ライブチューニング、スナップショット、`.gx` 変換）に対する単体テストを拡充する
+- [x] HTTP 非依存のプラグインランタイム／コントローラー層（シングルトン管理・設定読み書き・コマンドディスパッチ）を切り出し、[app.py](./app.py) と [orca_plugin/server.py](./orca_plugin/server.py) の共通ロジックを集約する
+- [x] [templates/index.html](./templates/index.html) の通信処理をトランスポート層（`fetch` ベース / 将来の `window.orca` ベース）として抽象化する
+- [x] 切り出したランタイム／コントローラー層およびエッジケース（再接続、ライブチューニング、スナップショット、`.gx` 変換）に対する単体テストを拡充する
 - [ ] （実機検証時）OrcaSlicer 2.5.0 上で `orca.pages` / `orca.printer_agent` の実クラス・メソッドシグネチャを確認し、プロトタイプ検証を行う

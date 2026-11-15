@@ -599,6 +599,90 @@
     let currentLedState = false;
     let cameraRetryTimer = null;
 
+    const BridgeTransport = (() => {
+      const hasOrca = () =>
+        typeof window.orca !== "undefined" &&
+        window.orca &&
+        typeof window.orca.postMessage === "function";
+
+      const ACTION_MAP = {
+        "GET:/api/printer/status": "printer.status",
+        "POST:/api/printer/pause": "printer.pause",
+        "POST:/api/printer/resume": "printer.resume",
+        "POST:/api/printer/cancel": "printer.cancel",
+        "POST:/api/printer/led": "printer.led",
+        "POST:/api/printer/temperature/nozzle": "printer.temperature.nozzle",
+        "POST:/api/printer/temperature/bed": "printer.temperature.bed",
+        "POST:/api/printer/speed": "printer.speed",
+        "POST:/api/camera/reconnect": "camera.reconnect",
+        "GET:/api/camera/snapshots": "camera.snapshots.list",
+        "POST:/api/camera/snapshots": "camera.snapshots.capture",
+        "GET:/api/history/temperature": "history.temperature",
+      };
+
+      let nextId = 1;
+      const pending = new Map();
+      let listenerReady = false;
+
+      function ensureOrcaListener() {
+        if (listenerReady || !hasOrca() || typeof window.orca.onMessage !== "function") {
+          return;
+        }
+        listenerReady = true;
+        window.orca.onMessage((msg) => {
+          if (!msg || msg.id == null || !pending.has(msg.id)) return;
+          const { resolve } = pending.get(msg.id);
+          pending.delete(msg.id);
+          resolve({
+            ok: msg.ok !== false && (!msg.status || (msg.status >= 200 && msg.status < 300)),
+            status: msg.status || 200,
+            data: msg.data || {},
+          });
+        });
+      }
+
+      async function request(method, url, body = null) {
+        if (hasOrca()) {
+          ensureOrcaListener();
+          const action = ACTION_MAP[`${method.toUpperCase()}:${url}`];
+          if (!action) {
+            return { ok: false, status: 404, data: { error: `Unsupported action: ${method} ${url}` } };
+          }
+          const id = nextId++;
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              pending.delete(id);
+              reject(new Error("Orca plugin response timeout"));
+            }, 10000);
+            pending.set(id, {
+              resolve: (res) => {
+                clearTimeout(timer);
+                resolve(res);
+              },
+            });
+            window.orca.postMessage({ id, action, payload: body || {} });
+          });
+        }
+
+        const res = await fetch(url, {
+          method,
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : null,
+        });
+        const data = await res.json();
+        return { ok: res.ok, status: res.status, data };
+      }
+
+      function cameraStreamUrl() {
+        if (hasOrca()) {
+          return CAMERA_URL;
+        }
+        return "/api/camera/stream?_t=" + Date.now();
+      }
+
+      return { request, cameraStreamUrl, isOrcaMode: hasOrca };
+    })();
+
     function onCameraError() {
       document.getElementById("camera-img").style.display = "none";
       document.getElementById("camera-fallback").style.display = "flex";
@@ -608,7 +692,7 @@
           const img = document.getElementById("camera-img");
           img.style.display = "block";
           document.getElementById("camera-fallback").style.display = "none";
-          img.src = "/api/camera/stream?_t=" + Date.now();
+          img.src = BridgeTransport.cameraStreamUrl();
         }, 3000);
       }
     }
@@ -628,18 +712,18 @@
         cameraRetryTimer = null;
       }
       try {
-        await fetch("/api/camera/reconnect", { method: "POST" });
+        await BridgeTransport.request("POST", "/api/camera/reconnect");
       } catch (_) {}
       const img = document.getElementById("camera-img");
       img.style.display = "block";
       document.getElementById("camera-fallback").style.display = "none";
-      img.src = "/api/camera/stream?_t=" + Date.now();
+      img.src = BridgeTransport.cameraStreamUrl();
     }
 
     async function captureSnapshot() {
       try {
-        const res = await fetch("/api/camera/snapshots", { method: "POST" });
-        const data = await res.json();
+        const res = await BridgeTransport.request("POST", "/api/camera/snapshots");
+        const data = res.data;
         if (!res.ok || data.ok === false) {
           throw new Error(data.error || "撮影に失敗しました");
         }
@@ -658,12 +742,8 @@
 
     async function sendAction(url, successText, body = null) {
       try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: body ? { "Content-Type": "application/json" } : {},
-          body: body ? JSON.stringify(body) : null,
-        });
-        const data = await res.json();
+        const res = await BridgeTransport.request("POST", url, body);
+        const data = res.data;
         if (!res.ok || data.ok === false) {
           throw new Error(data.error || "操作に失敗しました");
         }
@@ -738,8 +818,8 @@
       const connText = document.getElementById("conn-text");
 
       try {
-        const res = await fetch("/api/printer/status");
-        const data = await res.json();
+        const res = await BridgeTransport.request("GET", "/api/printer/status");
+        const data = res.data;
 
         if (data.connected) {
           dot.className = "dot online";
@@ -846,9 +926,9 @@
 
     async function fetchTempHistory() {
       try {
-        const res = await fetch("/api/history/temperature");
+        const res = await BridgeTransport.request("GET", "/api/history/temperature");
         if (!res.ok) return;
-        const data = await res.json();
+        const data = res.data;
         if (Array.isArray(data.samples)) {
           tempSamples = data.samples;
           drawTempChart();
@@ -1021,9 +1101,9 @@
 
     async function fetchSnapshots(selectLatest = false) {
       try {
-        const res = await fetch("/api/camera/snapshots");
+        const res = await BridgeTransport.request("GET", "/api/camera/snapshots");
         if (!res.ok) return;
-        const data = await res.json();
+        const data = res.data;
 
         const policyEl = document.getElementById("snapshot-policy");
         if (data.enabled) {

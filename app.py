@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import atexit
-import json
 import logging
 import os
 from pathlib import Path
@@ -11,8 +10,8 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
-from bridge_services import build_services
-from flashforge_client import FlashforgeClient, FlashforgeError
+from bridge_controller import BridgeController, load_config as _load_config, parse_bool_flag
+from flashforge_client import FlashforgeClient
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +21,7 @@ CONFIG_PATH = BASE_DIR / "config.json"
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
     """Load configuration from config.json with optional environment overrides."""
-    with path.open("r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    printer_cfg = config.setdefault("printer", {})
-    server_cfg = config.setdefault("server", {})
-
-    if os.getenv("PRINTER_IP"):
-        printer_cfg["ip"] = os.environ["PRINTER_IP"]
-    if os.getenv("PRINTER_PORT"):
-        printer_cfg["port"] = int(os.environ["PRINTER_PORT"])
-    if os.getenv("CAMERA_URL"):
-        printer_cfg["camera_url"] = os.environ["CAMERA_URL"]
-    if os.getenv("SERVER_PORT"):
-        server_cfg["port"] = int(os.environ["SERVER_PORT"])
-
-    return config
-
-
-def parse_bool_flag(value: str | None) -> bool:
-    if value is None:
-        return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return _load_config(path=path)
 
 
 class _StatusPollingFilter(logging.Filter):
@@ -75,35 +53,23 @@ def create_app(
     start_background: bool | None = None,
 ) -> Flask:
     cfg = config or load_config()
-    printer_cfg = cfg["printer"]
-
-    ff_client = client or FlashforgeClient(
-        host=printer_cfg["ip"],
-        port=int(printer_cfg.get("port", 8899)),
-        timeout=float(printer_cfg.get("timeout", 5.0)),
-        transfer_timeout=float(printer_cfg.get("transfer_timeout", 30.0)),
-    )
-
-    temp_history, camera_relay, snapshot_manager, monitor = build_services(
-        cfg=cfg,
+    controller = BridgeController(
+        config=cfg,
         base_dir=BASE_DIR,
-        ff_client=ff_client,
+        client=client,
+        start_background=start_background,
     )
-    should_start_bg = (client is None) if start_background is None else start_background
-    if should_start_bg:
-        monitor.start()
-
-    if client is None:
-        atexit.register(ff_client.close)
-    atexit.register(monitor.stop)
+    controller.start()
+    atexit.register(controller.stop)
 
     app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
-    app.config["PRINTER_CONFIG"] = printer_cfg
+    app.config["PRINTER_CONFIG"] = controller.printer_cfg
+    app.config["BRIDGE_CONTROLLER"] = controller
     app.config["BRIDGE_SERVICES"] = {
-        "temp_history": temp_history,
-        "camera_relay": camera_relay,
-        "snapshot_manager": snapshot_manager,
-        "monitor": monitor,
+        "temp_history": controller.temp_history,
+        "camera_relay": controller.camera_relay,
+        "snapshot_manager": controller.snapshot_manager,
+        "monitor": controller.monitor,
     }
 
     # ------------------------------------------------------------------
@@ -114,119 +80,57 @@ def create_app(
     def index():
         return render_template(
             "index.html",
-            camera_url=printer_cfg.get(
-                "camera_url", f"http://{printer_cfg['ip']}:8080/?action=stream"
-            ),
-            printer_ip=printer_cfg["ip"],
+            camera_url=controller.camera_url,
+            printer_ip=controller.printer_ip,
         )
 
     @app.get("/api/printer/status")
     def printer_status():
-        cam_status = camera_relay.get_status()
-        try:
-            status = ff_client.get_full_status()
-            monitor.observe_status(status)
-            status["camera"] = cam_status
-            return jsonify(status)
-        except FlashforgeError as exc:
-            return jsonify(
-                {
-                    "connected": False,
-                    "error": str(exc),
-                    "machine_status": "DISCONNECTED",
-                    "move_mode": "UNKNOWN",
-                    "led": None,
-                    "current_file": None,
-                    "temperatures": {
-                        "nozzle": {"actual": None, "target": None},
-                        "bed": {"actual": None, "target": None},
-                    },
-                    "progress": {
-                        "is_printing": False,
-                        "bytes_printed": 0,
-                        "bytes_total": 0,
-                        "percent": 0.0,
-                    },
-                    "camera": cam_status,
-                }
-            )
+        return jsonify(controller.get_printer_status())
 
     @app.get("/api/printer/info")
     def printer_info():
-        try:
-            return jsonify({"connected": True, "info": ff_client.get_info()})
-        except FlashforgeError as exc:
-            return jsonify({"connected": False, "error": str(exc)}), 502
+        status_code, data = controller.get_printer_info()
+        return jsonify(data), status_code
 
     @app.post("/api/printer/pause")
     def printer_pause():
-        try:
-            ff_client.pause_print()
-            return jsonify({"ok": True, "action": "pause"})
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.pause_print()
+        return jsonify(data), status_code
 
     @app.post("/api/printer/resume")
     def printer_resume():
-        try:
-            ff_client.resume_print()
-            return jsonify({"ok": True, "action": "resume"})
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.resume_print()
+        return jsonify(data), status_code
 
     @app.post("/api/printer/cancel")
     def printer_cancel():
-        try:
-            ff_client.cancel_print()
-            return jsonify({"ok": True, "action": "cancel"})
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.cancel_print()
+        return jsonify(data), status_code
 
     @app.post("/api/printer/led")
     def printer_led():
         payload = request.get_json(silent=True) or {}
-        on = bool(payload.get("on", True))
-        try:
-            ff_client.set_led(on)
-            return jsonify({"ok": True, "led": on})
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.set_led(bool(payload.get("on", True)))
+        return jsonify(data), status_code
 
     @app.post("/api/printer/temperature/nozzle")
     def printer_nozzle_temp():
         payload = request.get_json(silent=True) or {}
-        try:
-            target = int(payload["target"])
-            ff_client.set_nozzle_temp(target)
-            return jsonify({"ok": True, "target": target})
-        except (KeyError, TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.set_nozzle_temp(payload.get("target"))
+        return jsonify(data), status_code
 
     @app.post("/api/printer/temperature/bed")
     def printer_bed_temp():
         payload = request.get_json(silent=True) or {}
-        try:
-            target = int(payload["target"])
-            ff_client.set_bed_temp(target)
-            return jsonify({"ok": True, "target": target})
-        except (KeyError, TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.set_bed_temp(payload.get("target"))
+        return jsonify(data), status_code
 
     @app.post("/api/printer/speed")
     def printer_speed():
         payload = request.get_json(silent=True) or {}
-        try:
-            percent = int(payload["percent"])
-            ff_client.set_print_speed(percent)
-            return jsonify({"ok": True, "percent": percent})
-        except (KeyError, TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        except FlashforgeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+        status_code, data = controller.set_print_speed(payload.get("percent"))
+        return jsonify(data), status_code
 
     # ------------------------------------------------------------------
     # Camera Relay, Snapshots & Temperature History
@@ -235,37 +139,33 @@ def create_app(
     @app.get("/api/camera/stream")
     def camera_stream():
         return Response(
-            camera_relay.iter_mjpeg_frames(),
+            controller.camera_relay.iter_mjpeg_frames(),
             mimetype="multipart/x-mixed-replace; boundary=frame",
         )
 
     @app.post("/api/camera/reconnect")
     def camera_reconnect():
-        camera_relay.request_reconnect()
-        return jsonify({"ok": True})
+        return jsonify(controller.reconnect_camera())
 
     @app.get("/api/camera/snapshots")
     def camera_snapshots_list():
-        return jsonify(snapshot_manager.to_payload())
+        return jsonify(controller.list_snapshots())
 
     @app.post("/api/camera/snapshots")
     def camera_snapshots_capture():
-        frame = camera_relay.get_latest_frame(wait_timeout=5.0)
-        if not frame:
-            return jsonify({"ok": False, "error": "カメラフレームを取得できませんでした"}), 502
-        saved = snapshot_manager.save_frame(frame)
-        return jsonify({"ok": True, "snapshot": saved}), 201
+        status_code, data = controller.capture_snapshot()
+        return jsonify(data), status_code
 
     @app.get("/api/camera/snapshots/<filename>")
     def camera_snapshot_file(filename: str):
-        path = snapshot_manager.get_snapshot_path(filename)
+        path = controller.get_snapshot_path(filename)
         if path is None:
             return jsonify({"error": "Snapshot not found"}), 404
         return send_file(path, mimetype="image/jpeg")
 
     @app.get("/api/history/temperature")
     def temperature_history():
-        return jsonify(temp_history.to_payload())
+        return jsonify(controller.get_temperature_history())
 
     # ------------------------------------------------------------------
     # OctoPrint Compatibility API (for OrcaSlicer)
@@ -273,27 +173,11 @@ def create_app(
 
     @app.get("/api/version")
     def octoprint_version():
-        return jsonify(
-            {
-                "api": "0.1",
-                "server": "1.9.0",
-                "text": "OctoPrint 1.9.0",
-            }
-        )
+        return jsonify(controller.get_octoprint_version())
 
     @app.get("/api/settings")
     def octoprint_settings():
-        return jsonify(
-            {
-                "api": {"allowCrossOrigin": True},
-                "feature": {"sdSupport": True},
-                "webcam": {
-                    "streamUrl": printer_cfg.get(
-                        "camera_url", f"http://{printer_cfg['ip']}:8080/?action=stream"
-                    )
-                },
-            }
-        )
+        return jsonify(controller.get_octoprint_settings())
 
     @app.post("/api/files/local")
     def octoprint_upload_local():
@@ -303,39 +187,12 @@ def create_app(
 
         should_print = parse_bool_flag(request.form.get("print"))
         file_bytes = uploaded.read()
-        logger.info(
-            "Received /api/files/local upload: filename=%s size=%d bytes print=%s",
-            uploaded.filename,
-            len(file_bytes),
-            should_print,
+        status_code, data = controller.upload_local_file(
+            filename=uploaded.filename,
+            file_bytes=file_bytes,
+            should_print=should_print,
         )
-
-        try:
-            saved_name = ff_client.send_file(
-                filename=uploaded.filename,
-                data=file_bytes,
-                start_print=should_print,
-            )
-        except FlashforgeError as exc:
-            logger.error("Upload/print failed for %s: %s", uploaded.filename, exc)
-            return jsonify({"error": str(exc)}), 502
-
-        return (
-            jsonify(
-                {
-                    "files": {
-                        "local": {
-                            "name": saved_name,
-                            "origin": "local",
-                            "path": saved_name,
-                            "size": len(file_bytes),
-                        }
-                    },
-                    "done": True,
-                }
-            ),
-            201,
-        )
+        return jsonify(data), status_code
 
     return app
 
