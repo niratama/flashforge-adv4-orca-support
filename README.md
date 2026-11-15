@@ -2,12 +2,21 @@
 
 Flashforge Adventurer 4 を OrcaSlicer から制御・監視するための軽量ローカルブリッジサーバー（Web UI + OctoPrint 互換 API）です。
 
+## 主な機能
+
+- **OrcaSlicer 連携（OctoPrint 互換 API）**: スライス後の `.gcode` を自動で Adventurer 4 向け `.gx`（`xgcode 1.0` + サムネイル BMP）へ変換して転送・印刷開始
+- **ライブカメラ中継（`/api/camera/stream`）**: Adventurer 4 のカメラ（`:8080`）の同時接続数 1 本制限に対応するため、サーバー側で 1 本だけ接続して複数画面へ配信
+- **静止画の定期保存 & 履歴表示**: 印刷中（または常時）に一定間隔で JPEG を自動保存し、スライダー・サムネイルで履歴を確認可能（「撮影」ボタンで手動保存も可）
+- **温度推移グラフ**: ノズル・ベッドの実測値 / 目標値の推移をサーバー側で直近 4 時間分（設定変更可）保持してリアルタイム描画
+- **本体制御 & 日本語ステータス**: 一時停止 / 再開 / 中止 / LED 切替、`BUILDING_FROM_SD` などの状態コードの日本語表示
+
 ## ディレクトリ構成
 
 ```text
 flashforge-adv4-orca-support/
 ├── app.py                  # Flask Web サーバー & OctoPrint 互換 API
-├── config-example.json     # プリンター IP / ポート / カメラ URL / サーバー設定テンプレート
+├── bridge_services.py      # カメラ中継・静止画保存・温度履歴（標準ライブラリのみ）
+├── config-example.json     # プリンター・カメラ・履歴・サーバー設定テンプレート
 ├── flashforge_client.py    # Flashforge TCP (8899) クライアント
 ├── orca_plugin/            # OrcaSlicer 2.5.0+ 用ゼロ依存プラグイン
 │   ├── orca-plugin.json
@@ -23,7 +32,9 @@ flashforge-adv4-orca-support/
 │   └── index.html          # Device タブ用ダッシュボード UI
 └── tests/
     ├── test_app.py
-    └── test_flashforge_client.py
+    ├── test_bridge_services.py
+    ├── test_flashforge_client.py
+    └── test_plugin_server.py
 ```
 
 ## 1. セットアップと起動
@@ -57,9 +68,24 @@ cp config-example.json config.json
     "host": "0.0.0.0",
     "port": 5000,
     "debug": false
+  },
+  "camera": {
+    "snapshot_enabled": true,
+    "snapshot_only_while_printing": true,
+    "snapshot_interval_seconds": 60,
+    "snapshot_max_count": 200,
+    "snapshot_dir": "snapshots"
+  },
+  "history": {
+    "temperature_hours": 4.0,
+    "sample_interval_seconds": 5.0
   }
 }
 ```
+
+- `camera.snapshot_only_while_printing`: `true` で印刷中のみ自動保存、`false` で常時保存
+- `camera.snapshot_interval_seconds` / `snapshot_max_count`: 保存間隔（秒）と最大保持枚数（超過分は古い順に削除）
+- `history.temperature_hours` / `sample_interval_seconds`: 温度グラフの保持時間（時間）とサンプリング間隔（秒）
 
 環境変数（`PRINTER_IP`, `PRINTER_PORT`, `CAMERA_URL`, `SERVER_PORT`）でも上書きできます。
 
