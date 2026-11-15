@@ -153,6 +153,23 @@ uv run python scripts/build_orca_plugin.py
 
 OrcaSlicer を起動するとバックグラウンドで `http://localhost:5000` が自動起動します（初回のみネットワーク通信等の権限確認ダイアログが表示されます）。
 
+## 5. 開発・解析用 TCP プロキシ（`scripts/tcp_proxy.py`）
+
+FlashPrint とプリンター間の TCP `8899` 通信をキャプチャしてプロトコルを確認するためのツールです。
+
+```bash
+uv run python -B scripts/tcp_proxy.py --target-host 192.168.1.25 | tee tmp/proxy.log
+```
+
+- `--target-host`: 接続先プリンターの IP（デフォルト: `192.168.1.25`）
+- `--target-port`: 接続先ポート（デフォルト: `8899`）
+- `--listen-host` / `--listen-port`: プロキシの待受アドレス・ポート（デフォルト: `0.0.0.0:8899`）
+- `--verbose-all`: 大きなファイル転送チャンクも含め全パケットを出力
+
+**キャプチャ手順の注意点:**
+1. Adventurer 4 の制御セッション（`~M601 S1`）は 1 接続限定のため、実行前に `app.py` を停止してください。
+2. FlashPrint の接続先 IP に `127.0.0.1`（Windows から WSL の `127.0.0.1:8899` に繋がらない場合は `ip addr` で確認した WSL の IP）を指定して操作します。
+
 ## ライセンス
 
 [MIT License](LICENSE)

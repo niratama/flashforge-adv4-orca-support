@@ -39,3 +39,14 @@ WSL 上で手動起動しているブリッジサーバー（`app.py`）を、Wi
 ### Phase 5: ドキュメント整備
 - [ ] [README.md](./README.md) に Windows 版 OrcaSlicer プラグインとしての導入・設定手順を追記する
 - [ ] 単体テスト（`uv run python -m unittest discover -s tests -v`）を更新・全件パスさせる
+
+---
+
+## 機能拡張 TODO: 印刷中の温度・Z微調整（ライブチューニング）
+
+- [ ] [scripts/tcp_proxy.py](./scripts/tcp_proxy.py) 経由で FlashPrint を Adventurer 4 に接続し、印刷中の以下操作時の TCP `8899` コマンドと応答をキャプチャする
+  - ノズル目標温度の変更（`~M104 S<temp> T0` 等かどうか確認）
+  - ベッド目標温度の変更（`~M140 S<temp>` 等かどうか確認）
+  - Z微調整（`+` / `-` 時に `~M290 Z...` や独自 M コードのどれが送られるか確認）
+- [ ] 確認できた仕様を [PROTOCOL.md](./PROTOCOL.md) に追記する
+- [ ] [flashforge_client.py](./flashforge_client.py)・[app.py](./app.py)・[orca_plugin/server.py](./orca_plugin/server.py)・[templates/index.html](./templates/index.html) に温度設定／Z微調整の API と UI を実装し、単体テストを追加する
