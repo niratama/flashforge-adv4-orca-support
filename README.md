@@ -14,6 +14,9 @@ Flashforge Adventurer 4 を OrcaSlicer から制御・監視するための軽�
 
 ```text
 flashforge-adv4-orca-support/
+├── .agents/
+│   └── skills/
+│       └── orca-plugin-dev/ # OrcaSlicer プラグイン開発用 AI エージェントスキル
 ├── app.py                  # Flask Web サーバー & OctoPrint 互換 API
 ├── bridge_services.py      # カメラ中継・静止画保存・温度履歴（標準ライブラリのみ）
 ├── config-example.json     # プリンター・カメラ・履歴・サーバー設定テンプレート
@@ -188,6 +191,17 @@ uv run python -B scripts/tcp_proxy.py --target-host 192.168.1.25 | tee tmp/proxy
 **キャプチャ手順の注意点:**
 1. Adventurer 4 の制御セッション（`~M601 S1`）は 1 接続限定のため、実行前に `app.py` を停止してください。
 2. FlashPrint の接続先 IP に `127.0.0.1`（Windows から WSL の `127.0.0.1:8899` に繋がらない場合は `ip addr` で確認した WSL の IP）を指定して操作します。
+
+## 6. AI エージェント用開発スキル（`.agents/skills/orca-plugin-dev/`）
+
+OrcaSlicer 2.5.0+ プラグイン開発の公式仕様と、本リポジトリ固有の実装パターンをまとめた AI エージェント向けスキルを同梱しています。対応エージェント（Antigravity 等）で `orca_plugin/` や `scripts/build_orca_plugin.py` の編集を行う際、必要に応じて自動的に参照されます。
+
+- `.agents/skills/orca-plugin-dev/SKILL.md`
+  - 開発ルール（ゼロ依存の標準ライブラリ実装、`import orca` フォールバック、`lib/` バンドル構成、UI スレッド非ブロッキング、`request_permissions()` 事前宣言）およびビルド・検証手順
+- `.agents/skills/orca-plugin-dev/references/orca_plugin_system.md`
+  - OrcaSlicer プラグイン基盤（`@orca.plugin` / `orca.base`、Capability 種別、`ExecutionResult` / `PluginResult`、Audit Hook と権限モデル、`orca.host.ui`、ライフサイクルフック）のリファレンス
+- `.agents/skills/orca-plugin-dev/references/repo_patterns.md`
+  - 本リポジトリにおける `sys.path` 解決・シングルトン管理・テスト方針・検証コマンドのまとめ
 
 ## ライセンス
 
