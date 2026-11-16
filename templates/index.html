@@ -448,6 +448,34 @@
       object-fit: cover;
       display: block;
     }
+
+    .api-key-bar {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding: 10px 14px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+
+    .api-key-bar.open {
+      display: flex;
+    }
+
+    .api-key-bar input {
+      flex: 1;
+      min-width: 180px;
+      background: #14171c;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
@@ -457,11 +485,22 @@
         <h1>Flashforge Adventurer 4</h1>
         <div class="subtitle">Printer IP: <code>{{ printer_ip }}</code></div>
       </div>
-      <div class="badge">
-        <span id="conn-dot" class="dot"></span>
-        <span id="conn-text">接続確認中...</span>
+      <div class="header-actions">
+        <button type="button" id="api-key-toggle-btn" class="btn-sm" onclick="toggleApiKeyBar()">API Key</button>
+        <div class="badge">
+          <span id="conn-dot" class="dot"></span>
+          <span id="conn-text">接続確認中...</span>
+        </div>
       </div>
     </header>
+
+    <div id="api-key-bar" class="api-key-bar">
+      <label for="api-key-input" style="color: var(--muted);">API Key:</label>
+      <input id="api-key-input" type="password" placeholder="server.api_key を設定している場合に入力" autocomplete="off" />
+      <button type="button" class="btn-sm primary" onclick="saveApiKey()">保存</button>
+      <button type="button" class="btn-sm" onclick="clearApiKey()">クリア</button>
+      <button type="button" class="btn-sm" onclick="toggleApiKeyBar(false)">閉じる</button>
+    </div>
 
     <div class="grid">
       <section class="card">
@@ -596,8 +635,53 @@
 
   <script>
     const CAMERA_URL = {{ camera_url | tojson }};
+    const API_KEY_STORAGE_KEY = "ff_bridge_api_key";
     let currentLedState = false;
     let cameraRetryTimer = null;
+
+    function getStoredApiKey() {
+      try {
+        return localStorage.getItem(API_KEY_STORAGE_KEY) || "";
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function updateApiKeyButton() {
+      const btn = document.getElementById("api-key-toggle-btn");
+      if (!btn) return;
+      btn.textContent = getStoredApiKey() ? "API Key ✓" : "API Key";
+    }
+
+    function toggleApiKeyBar(forceOpen = null) {
+      const bar = document.getElementById("api-key-bar");
+      const input = document.getElementById("api-key-input");
+      const shouldOpen = forceOpen === null ? !bar.classList.contains("open") : Boolean(forceOpen);
+      bar.classList.toggle("open", shouldOpen);
+      if (shouldOpen) {
+        input.value = getStoredApiKey();
+        input.focus();
+      }
+    }
+
+    function saveApiKey() {
+      const val = document.getElementById("api-key-input").value.trim();
+      try {
+        if (val) {
+          localStorage.setItem(API_KEY_STORAGE_KEY, val);
+        } else {
+          localStorage.removeItem(API_KEY_STORAGE_KEY);
+        }
+      } catch (_) {}
+      updateApiKeyButton();
+      toggleApiKeyBar(false);
+      setActionMessage(val ? "API Key を保存しました" : "API Key をクリアしました", false);
+    }
+
+    function clearApiKey() {
+      document.getElementById("api-key-input").value = "";
+      saveApiKey();
+    }
 
     const BridgeTransport = (() => {
       const hasOrca = () =>
@@ -664,12 +748,24 @@
           });
         }
 
+        const headers = {};
+        if (body) {
+          headers["Content-Type"] = "application/json";
+        }
+        const apiKey = getStoredApiKey();
+        if (apiKey) {
+          headers["X-Api-Key"] = apiKey;
+        }
         const res = await fetch(url, {
           method,
-          headers: body ? { "Content-Type": "application/json" } : {},
+          headers,
           body: body ? JSON.stringify(body) : null,
         });
         const data = await res.json();
+        if (res.status === 401) {
+          toggleApiKeyBar(true);
+          data.error = "APIキーが未設定または一致しません。上部の API Key 欄に入力して保存してください。";
+        }
         return { ok: res.ok, status: res.status, data };
       }
 
@@ -1206,6 +1302,7 @@
       renderSnapshotViewer();
     }
 
+    updateApiKeyButton();
     fetchTempHistory();
     fetchSnapshots(true);
     fetchStatus();

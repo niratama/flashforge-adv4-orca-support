@@ -84,7 +84,14 @@ cp config-example.json config.json
 ```
 
 - `server.host` / `server.port`: 待受アドレス・ポート（デフォルトは安全のため `127.0.0.1:5000`。別 PC から接続する場合のみ `0.0.0.0` 等に変更してください）
-- `server.api_key`（任意）: 設定した場合、制御・ファイルアップロード等の `POST` リクエストで `X-Api-Key`（または `Authorization: Bearer ...`）ヘッダによる認証を要求します
+- `server.api_key`（任意）: 設定した場合、制御・ファイルアップロード等の `POST` リクエストで `X-Api-Key`（または `Authorization: Bearer ...`）ヘッダによる認証を要求します。
+  - **未設定の場合（通常のローカル利用）**: キー入力は一切不要です（デフォルトの `127.0.0.1` 待受＋同一オリジン検証により、ローカル PC 内での利用やプラグイン利用はキー無しで安全に動作します）。
+  - **設定した場合（LAN 公開時など）**: OrcaSlicer の OctoPrint 接続設定および Web UI / Device タブ右上の **API Key** ボタンに初回のみ入力・保存してください（`localStorage` に記憶されるため次回以降は入力不要です）。
+  - キーは以下のコマンド等で生成できます：
+    ```bash
+    python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+    # または: openssl rand -hex 32
+    ```
 - `server.max_upload_bytes`（任意）: `POST /api/files/local` の最大アップロードサイズ（バイト単位、デフォルト `104857600` = 100 MiB）
 - `camera.snapshot_only_while_printing`: `true` で印刷中のみ自動保存、`false` で常時保存
 - `camera.snapshot_interval_seconds` / `snapshot_max_count`: 保存間隔（秒）と最大保持枚数（超過分は古い順に削除）
