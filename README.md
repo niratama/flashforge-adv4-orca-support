@@ -157,13 +157,20 @@ uv run python -m unittest discover -s tests -v
 uv run python scripts/build_orca_plugin.py
 ```
 
-生成された `dist/flashforge_adv4_bridge/` フォルダを Windows 側の OrcaSlicer プラグインディレクトリへコピーし、`config.json`（無ければ `config-example.json` をリネーム）にプリンター IP を設定してください：
+生成された `dist/flashforge_adv4_bridge/` フォルダを Windows 側の OrcaSlicer プラグインディレクトリへコピーしてください：
 
 ```text
 %APPDATA%\OrcaSlicer\orca_plugins\flashforge_adv4_bridge\
 ```
 
 OrcaSlicer を起動するとバックグラウンドで `http://localhost:5000` が自動起動します（初回のみネットワーク通信等の権限確認ダイアログが表示されます）。
+
+### プラグインの設定変更（GUI フォーム）
+
+OrcaSlicer の **プラグイン** 画面にある **「設定」** タブから、`printer`（IP・ポート・カメラ URL 等）・`server`・`camera`・`history` の各項目をフォーム形式で編集できます。
+
+- **保存先と優先順位**: フォームで「保存」を押すと OrcaSlicer 本体のプラグイン設定（`%APPDATA%\OrcaSlicer\orca_plugins\config.json`）に保存され、プラグイン読み込み時にフォルダ内の `config.json` / `config-example.json` の値へ上書きマージされて適用されます。
+- **反映方法**: IP やポートを変更して「保存」した後は、プラグイン画面右上の **「再読込」**（または OrcaSlicer の再起動）を行うと変更が反映されます。
 
 ## 5. 開発・解析用 TCP プロキシ（`scripts/tcp_proxy.py`）
 

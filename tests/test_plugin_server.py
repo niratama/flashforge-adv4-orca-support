@@ -242,5 +242,47 @@ class TestPluginBridgeServer(unittest.TestCase):
             secured.stop()
 
 
+class TestPluginConfigUI(unittest.TestCase):
+    def test_parse_and_merge_orca_config(self) -> None:
+        import plugin as plugin_mod
+
+        self.assertEqual(plugin_mod.parse_orca_config_json(None), {})
+        self.assertEqual(plugin_mod.parse_orca_config_json(""), {})
+        self.assertEqual(plugin_mod.parse_orca_config_json("not-json"), {})
+        self.assertEqual(
+            plugin_mod.parse_orca_config_json('{"printer": {"ip": "10.0.0.5"}}'),
+            {"printer": {"ip": "10.0.0.5"}},
+        )
+
+        base = {
+            "printer": {"ip": "192.168.1.100", "port": 8899},
+            "server": {"host": "127.0.0.1", "port": 5000},
+        }
+        merged = plugin_mod.resolve_effective_config(
+            orca_config={"printer": {"ip": "192.168.1.250"}},
+            base_config=base,
+        )
+        self.assertEqual(merged["printer"]["ip"], "192.168.1.250")
+        self.assertEqual(merged["printer"]["port"], 8899)
+        self.assertEqual(merged["server"]["port"], 5000)
+
+    def test_build_config_ui_html(self) -> None:
+        import plugin as plugin_mod
+
+        html_out = plugin_mod.build_config_ui_html(
+            {
+                "printer": {"ip": "192.168.1.100</script>", "port": 8899},
+                "server": {"host": "127.0.0.1", "port": 5000, "debug": False},
+            }
+        )
+        self.assertIn("window.orca.getConfig", html_out)
+        self.assertIn("window.orca.saveConfig", html_out)
+        self.assertIn('id="printer_ip"', html_out)
+        self.assertIn('id="server_port"', html_out)
+        self.assertIn('id="camera_snapshot_enabled"', html_out)
+        self.assertIn('id="history_temperature_hours"', html_out)
+        self.assertIn("\\u003c/script\\u003e", html_out)
+
+
 if __name__ == "__main__":
     unittest.main()

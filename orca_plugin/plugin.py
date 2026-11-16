@@ -11,10 +11,13 @@
 from __future__ import annotations
 
 import atexit
+import copy
+import json
 import logging
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 PLUGIN_DIR = Path(__file__).resolve().parent
 LIB_DIR = PLUGIN_DIR / "lib"
@@ -37,16 +40,496 @@ logger = logging.getLogger(__name__)
 _bridge_lock = threading.Lock()
 _bridge_instance: BridgeServer | None = None
 _atexit_registered = False
+_cached_orca_config: dict[str, Any] = {}
 
 
-def _start_bridge() -> tuple[BridgeServer | None, str]:
+def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge override values into a copy of base."""
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def parse_orca_config_json(raw: Any) -> dict[str, Any]:
+    """Normalize OrcaSlicer get_config() return value into a dict."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            logger.warning("Failed to parse OrcaSlicer plugin config JSON: %s", exc)
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def resolve_effective_config(
+    orca_config: dict[str, Any] | None = None,
+    base_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge OrcaSlicer UI config on top of local config.json / config-example.json."""
+    base = copy.deepcopy(base_config) if base_config is not None else load_config()
+    if orca_config:
+        return deep_merge_dicts(base, orca_config)
+    return base
+
+
+def _extract_orca_config(owner: Any) -> dict[str, Any]:
+    if owner is None:
+        return {}
+    getter = getattr(owner, "get_config", None)
+    if not callable(getter):
+        return {}
+    try:
+        return parse_orca_config_json(getter())
+    except Exception as exc:
+        logger.debug("get_config() failed on %s: %s", type(owner).__name__, exc)
+        return {}
+
+
+def _safe_json_for_inline_script(value: Any) -> str:
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
+def build_config_ui_html(default_config: dict[str, Any]) -> str:
+    """Build a self-contained HTML/JS form for OrcaSlicer's plugin Config tab."""
+    default_json = _safe_json_for_inline_script(default_config)
+    return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flashforge Adventurer 4 Bridge 設定</title>
+<style>
+  :root {{
+    color-scheme: light dark;
+    --bg: var(--orca-bg, #1e1e1e);
+    --fg: var(--orca-fg, #e6e6e6);
+    --muted: var(--orca-muted, #9aa0a6);
+    --accent: var(--orca-accent, #009688);
+    --border: var(--orca-border, #3c3c3c);
+    --font: var(--orca-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+    --input-bg: rgba(127, 127, 127, 0.12);
+    --card-bg: rgba(127, 127, 127, 0.06);
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0;
+    padding: 14px 16px 20px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.45;
+  }}
+  .header {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }}
+  .header h2 {{
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }}
+  .hint {{
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 12px;
+  }}
+  .grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }}
+  fieldset {{
+    margin: 0;
+    padding: 10px 12px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--card-bg);
+  }}
+  legend {{
+    padding: 0 6px;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--fg);
+  }}
+  .field {{
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+  }}
+  .field:first-of-type {{
+    margin-top: 4px;
+  }}
+  .field-row {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }}
+  label {{
+    font-size: 12px;
+    color: var(--muted);
+  }}
+  input[type="text"],
+  input[type="number"] {{
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 13px;
+    font-family: inherit;
+  }}
+  input[type="text"]:focus,
+  input[type="number"]:focus {{
+    outline: 1px solid var(--accent);
+    border-color: var(--accent);
+  }}
+  .checkbox-field {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    cursor: pointer;
+  }}
+  .checkbox-field label {{
+    color: var(--fg);
+    cursor: pointer;
+  }}
+  .inline-action {{
+    align-self: flex-start;
+    margin-top: 2px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+  }}
+  .actions {{
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }}
+  .status {{
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }}
+  .status.ok {{ color: #4caf50; }}
+  .status.err {{ color: #f44336; }}
+  button.btn {{
+    padding: 7px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 13px;
+    cursor: pointer;
+  }}
+  button.btn-primary {{
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }}
+</style>
+</head>
+<body>
+  <div class="header">
+    <h2>Flashforge Adventurer 4 Bridge 設定</h2>
+  </div>
+  <p class="hint">
+    「保存」を押すと OrcaSlicer のプラグイン設定に保存されます。変更を反映するには、保存後にプラグイン画面右上の「再読込」（または OrcaSlicer の再起動）を行ってください。
+  </p>
+
+  <form id="cfg-form" onsubmit="return false;">
+    <div class="grid">
+      <fieldset>
+        <legend>プリンター接続 (printer)</legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="printer_ip">プリンター IP アドレス</label>
+            <input id="printer_ip" type="text" placeholder="192.168.1.100" required />
+          </div>
+          <div class="field">
+            <label for="printer_port">TCP ポート</label>
+            <input id="printer_port" type="number" min="1" max="65535" step="1" required />
+          </div>
+        </div>
+        <div class="field">
+          <label for="printer_camera_url">カメラストリーム URL</label>
+          <input id="printer_camera_url" type="text" placeholder="http://192.168.1.100:8080/?action=stream" />
+          <button type="button" class="inline-action" id="btn-sync-camera">IP からカメラ URL を自動設定</button>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="printer_timeout">通信タイムアウト (秒)</label>
+            <input id="printer_timeout" type="number" min="0.5" step="0.5" />
+          </div>
+          <div class="field">
+            <label for="printer_transfer_timeout">転送タイムアウト (秒)</label>
+            <input id="printer_transfer_timeout" type="number" min="1" step="1" />
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>ローカルブリッジサーバー (server)</legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="server_host">バインドホスト</label>
+            <input id="server_host" type="text" placeholder="127.0.0.1" required />
+          </div>
+          <div class="field">
+            <label for="server_port">待受ポート</label>
+            <input id="server_port" type="number" min="1" max="65535" step="1" required />
+          </div>
+        </div>
+        <div class="checkbox-field">
+          <input id="server_debug" type="checkbox" />
+          <label for="server_debug">デバッグログを有効にする (debug)</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>カメラ・スナップショット (camera)</legend>
+        <div class="checkbox-field">
+          <input id="camera_snapshot_enabled" type="checkbox" />
+          <label for="camera_snapshot_enabled">自動スナップショットを有効にする</label>
+        </div>
+        <div class="checkbox-field">
+          <input id="camera_snapshot_only_while_printing" type="checkbox" />
+          <label for="camera_snapshot_only_while_printing">印刷中のみ撮影する</label>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="camera_snapshot_interval_seconds">撮影間隔 (秒)</label>
+            <input id="camera_snapshot_interval_seconds" type="number" min="1" step="1" />
+          </div>
+          <div class="field">
+            <label for="camera_snapshot_max_count">最大保存枚数</label>
+            <input id="camera_snapshot_max_count" type="number" min="1" step="1" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="camera_snapshot_dir">保存先ディレクトリ</label>
+          <input id="camera_snapshot_dir" type="text" placeholder="snapshots" />
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>温度履歴 (history)</legend>
+        <div class="field-row">
+          <div class="field">
+            <label for="history_temperature_hours">保持時間 (時間)</label>
+            <input id="history_temperature_hours" type="number" min="0.1" step="0.5" />
+          </div>
+          <div class="field">
+            <label for="history_sample_interval_seconds">取得間隔 (秒)</label>
+            <input id="history_sample_interval_seconds" type="number" min="1" step="0.5" />
+          </div>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="actions">
+      <span id="status-msg" class="status"></span>
+      <button type="button" class="btn" id="btn-reset">デフォルトに戻す</button>
+      <button type="button" class="btn btn-primary" id="btn-save">保存</button>
+    </div>
+  </form>
+
+<script>
+(function() {{
+  const DEFAULT_CONFIG = {default_json};
+
+  function deepMerge(base, override) {{
+    const result = Object.assign({{}}, base);
+    if (!override || typeof override !== "object") return result;
+    for (const key of Object.keys(override)) {{
+      const val = override[key];
+      if (val && typeof val === "object" && !Array.isArray(val) &&
+          result[key] && typeof result[key] === "object" && !Array.isArray(result[key])) {{
+        result[key] = deepMerge(result[key], val);
+      }} else if (val !== undefined) {{
+        result[key] = val;
+      }}
+    }}
+    return result;
+  }}
+
+  function setStatus(text, kind) {{
+    const el = document.getElementById("status-msg");
+    el.textContent = text;
+    el.className = "status" + (kind ? " " + kind : "");
+  }}
+
+  function applyToForm(cfg) {{
+    const p = cfg.printer || {{}};
+    const s = cfg.server || {{}};
+    const c = cfg.camera || {{}};
+    const h = cfg.history || {{}};
+
+    document.getElementById("printer_ip").value = p.ip ?? "192.168.1.100";
+    document.getElementById("printer_port").value = p.port ?? 8899;
+    document.getElementById("printer_camera_url").value = p.camera_url ?? "";
+    document.getElementById("printer_timeout").value = p.timeout ?? 5.0;
+    document.getElementById("printer_transfer_timeout").value = p.transfer_timeout ?? 30.0;
+
+    document.getElementById("server_host").value = s.host ?? "127.0.0.1";
+    document.getElementById("server_port").value = s.port ?? 5000;
+    document.getElementById("server_debug").checked = Boolean(s.debug);
+
+    document.getElementById("camera_snapshot_enabled").checked = c.snapshot_enabled !== false;
+    document.getElementById("camera_snapshot_only_while_printing").checked = c.snapshot_only_while_printing !== false;
+    document.getElementById("camera_snapshot_interval_seconds").value = c.snapshot_interval_seconds ?? 60;
+    document.getElementById("camera_snapshot_max_count").value = c.snapshot_max_count ?? 200;
+    document.getElementById("camera_snapshot_dir").value = c.snapshot_dir ?? "snapshots";
+
+    document.getElementById("history_temperature_hours").value = h.temperature_hours ?? 4.0;
+    document.getElementById("history_sample_interval_seconds").value = h.sample_interval_seconds ?? 5.0;
+  }}
+
+  function readFromForm() {{
+    const printerIp = document.getElementById("printer_ip").value.trim();
+    const printerPort = parseInt(document.getElementById("printer_port").value, 10);
+    const serverHost = document.getElementById("server_host").value.trim();
+    const serverPort = parseInt(document.getElementById("server_port").value, 10);
+
+    if (!printerIp) {{
+      throw new Error("プリンター IP アドレスを入力してください。");
+    }}
+    if (!Number.isInteger(printerPort) || printerPort < 1 || printerPort > 65535) {{
+      throw new Error("プリンター TCP ポートは 1〜65535 の整数で指定してください。");
+    }}
+    if (!serverHost) {{
+      throw new Error("バインドホストを入力してください。");
+    }}
+    if (!Number.isInteger(serverPort) || serverPort < 1 || serverPort > 65535) {{
+      throw new Error("待受ポートは 1〜65535 の整数で指定してください。");
+    }}
+
+    return {{
+      printer: {{
+        ip: printerIp,
+        port: printerPort,
+        timeout: parseFloat(document.getElementById("printer_timeout").value) || 5.0,
+        transfer_timeout: parseFloat(document.getElementById("printer_transfer_timeout").value) || 30.0,
+        camera_url: document.getElementById("printer_camera_url").value.trim() || ("http://" + printerIp + ":8080/?action=stream")
+      }},
+      server: {{
+        host: serverHost,
+        port: serverPort,
+        debug: document.getElementById("server_debug").checked
+      }},
+      camera: {{
+        snapshot_enabled: document.getElementById("camera_snapshot_enabled").checked,
+        snapshot_only_while_printing: document.getElementById("camera_snapshot_only_while_printing").checked,
+        snapshot_interval_seconds: parseInt(document.getElementById("camera_snapshot_interval_seconds").value, 10) || 60,
+        snapshot_max_count: parseInt(document.getElementById("camera_snapshot_max_count").value, 10) || 200,
+        snapshot_dir: document.getElementById("camera_snapshot_dir").value.trim() || "snapshots"
+      }},
+      history: {{
+        temperature_hours: parseFloat(document.getElementById("history_temperature_hours").value) || 4.0,
+        sample_interval_seconds: parseFloat(document.getElementById("history_sample_interval_seconds").value) || 5.0
+      }}
+    }};
+  }}
+
+  function loadInitialConfig() {{
+    let saved = {{}};
+    if (window.orca && typeof window.orca.getConfig === "function") {{
+      try {{
+        const raw = window.orca.getConfig();
+        if (typeof raw === "string" && raw.trim()) {{
+          saved = JSON.parse(raw);
+        }} else if (raw && typeof raw === "object") {{
+          saved = raw;
+        }}
+      }} catch (err) {{
+        setStatus("設定の読み込みに失敗しました: " + err.message, "err");
+      }}
+    }}
+    applyToForm(deepMerge(DEFAULT_CONFIG, saved));
+  }}
+
+  document.getElementById("btn-sync-camera").addEventListener("click", function() {{
+    const ip = document.getElementById("printer_ip").value.trim() || "192.168.1.100";
+    document.getElementById("printer_camera_url").value = "http://" + ip + ":8080/?action=stream";
+  }});
+
+  document.getElementById("btn-reset").addEventListener("click", function() {{
+    applyToForm(DEFAULT_CONFIG);
+    setStatus("デフォルト値をフォームに読み込みました（「保存」で確定します）。", "");
+  }});
+
+  document.getElementById("btn-save").addEventListener("click", function() {{
+    try {{
+      const cfg = readFromForm();
+      if (window.orca && typeof window.orca.saveConfig === "function") {{
+        window.orca.saveConfig(cfg);
+        setStatus("保存しました。反映するには「再読込」を押してください。", "ok");
+      }} else {{
+        setStatus("OrcaSlicer 設定 API が利用できません。", "err");
+      }}
+    }} catch (err) {{
+      setStatus(err.message, "err");
+    }}
+  }});
+
+  loadInitialConfig();
+}})();
+</script>
+</body>
+</html>
+"""
+
+
+def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServer | None, str]:
     """Start the local bridge server once and register shutdown cleanup."""
-    global _bridge_instance, _atexit_registered
+    global _bridge_instance, _atexit_registered, _cached_orca_config
     with _bridge_lock:
-        if _bridge_instance is not None and _bridge_instance.is_running:
-            return _bridge_instance, f"http://localhost:{_bridge_instance.port}"
+        if orca_config:
+            _cached_orca_config = deep_merge_dicts(_cached_orca_config, orca_config)
 
-        cfg = load_config()
+        cfg = resolve_effective_config(_cached_orca_config)
+
+        if _bridge_instance is not None and _bridge_instance.is_running:
+            if _bridge_instance.config == cfg:
+                return _bridge_instance, f"http://localhost:{_bridge_instance.port}"
+            try:
+                _bridge_instance.stop()
+            except Exception as exc:
+                logger.warning("BridgeServer restart stop failed: %s", exc)
+            _bridge_instance = None
+
         bridge = BridgeServer(config=cfg)
         try:
             port = bridge.start()
@@ -81,15 +564,24 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
         def get_name(self) -> str:
             return "Flashforge Adventurer 4 Bridge Status"
 
+        def get_default_config(self) -> dict[str, Any]:
+            return load_config()
+
+        def has_config_ui(self) -> bool:
+            return True
+
+        def get_config_ui(self) -> str:
+            return build_config_ui_html(self.get_default_config())
+
         def on_load(self) -> None:
-            _, info = _start_bridge()
+            _, info = _start_bridge(_extract_orca_config(self))
             logger.info("Flashforge Adventurer 4 Bridge loaded: %s", info)
 
         def on_unload(self) -> None:
             _stop_bridge()
 
         def execute(self):
-            bridge, info = _start_bridge()
+            bridge, info = _start_bridge(_extract_orca_config(self))
             if bridge is None:
                 return orca.ExecutionResult.failure(orca.PluginResult.RecoverableError, info)
             printer_ip = bridge.config.get("printer", {}).get("ip", "unknown")
@@ -101,8 +593,18 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
     class FlashforgeAdv4BridgePlugin(orca.base):
         """OrcaSlicer plugin package registering the Adventurer 4 bridge capability."""
 
+        def get_default_config(self) -> dict[str, Any]:
+            return load_config()
+
+        def has_config_ui(self) -> bool:
+            return True
+
+        def get_config_ui(self) -> str:
+            return build_config_ui_html(self.get_default_config())
+
         def register_capabilities(self) -> None:
-            cfg = load_config()
+            orca_cfg = _extract_orca_config(self)
+            cfg = resolve_effective_config(orca_cfg)
             printer_cfg = cfg.get("printer", {})
             server_cfg = cfg.get("server", {})
             camera_cfg = cfg.get("camera", {})
@@ -132,11 +634,11 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
                 except Exception as exc:
                     logger.debug("request_permissions skipped/failed: %s", exc)
             orca.register_capability(FlashforgeBridgeCapability)
-            _, info = _start_bridge()
+            _, info = _start_bridge(orca_cfg)
             logger.info("Flashforge Adventurer 4 Bridge registered: %s", info)
 
         def on_load(self) -> None:
-            _, info = _start_bridge()
+            _, info = _start_bridge(_extract_orca_config(self))
             logger.info("Flashforge Adventurer 4 Bridge plugin loaded: %s", info)
 
         def on_unload(self) -> None:
