@@ -10,7 +10,13 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
-from bridge_controller import BridgeController, load_config as _load_config, parse_bool_flag
+from bridge_controller import (
+    BridgeController,
+    is_same_origin_request,
+    load_config as _load_config,
+    parse_bool_flag,
+    verify_api_key,
+)
 from flashforge_client import FlashforgeClient
 
 logger = logging.getLogger(__name__)
@@ -63,6 +69,9 @@ def create_app(
     atexit.register(controller.stop)
 
     app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
+    app.config["MAX_CONTENT_LENGTH"] = int(
+        controller.server_cfg.get("max_upload_bytes", 100 * 1024 * 1024)
+    )
     app.config["PRINTER_CONFIG"] = controller.printer_cfg
     app.config["BRIDGE_CONTROLLER"] = controller
     app.config["BRIDGE_SERVICES"] = {
@@ -71,6 +80,23 @@ def create_app(
         "snapshot_manager": controller.snapshot_manager,
         "monitor": controller.monitor,
     }
+
+    @app.before_request
+    def _enforce_security_guards():
+        if request.method == "POST":
+            if not is_same_origin_request(
+                request.headers.get("Origin"),
+                request.headers.get("Referer"),
+                request.headers.get("Host"),
+            ):
+                return jsonify({"ok": False, "error": "Cross-origin POST request rejected"}), 403
+            if not verify_api_key(
+                controller.api_key,
+                request.headers.get("X-Api-Key"),
+                request.headers.get("Authorization"),
+            ):
+                return jsonify({"ok": False, "error": "Unauthorized"}), 401
+        return None
 
     # ------------------------------------------------------------------
     # Device Tab Web UI
@@ -108,27 +134,50 @@ def create_app(
         status_code, data = controller.cancel_print()
         return jsonify(data), status_code
 
+    def _parse_optional_json() -> tuple[dict[str, Any] | None, tuple[Any, int] | None]:
+        raw = request.get_data()
+        if not raw or not raw.strip():
+            return {}, None
+        parsed = request.get_json(silent=True)
+        if parsed is None:
+            return None, (jsonify({"ok": False, "error": "Invalid JSON body"}), 400)
+        if not isinstance(parsed, dict):
+            return None, (jsonify({"ok": False, "error": "JSON body must be an object"}), 400)
+        return parsed, None
+
     @app.post("/api/printer/led")
     def printer_led():
-        payload = request.get_json(silent=True) or {}
+        payload, err = _parse_optional_json()
+        if err is not None:
+            return err
+        assert payload is not None
         status_code, data = controller.set_led(bool(payload.get("on", True)))
         return jsonify(data), status_code
 
     @app.post("/api/printer/temperature/nozzle")
     def printer_nozzle_temp():
-        payload = request.get_json(silent=True) or {}
+        payload, err = _parse_optional_json()
+        if err is not None:
+            return err
+        assert payload is not None
         status_code, data = controller.set_nozzle_temp(payload.get("target"))
         return jsonify(data), status_code
 
     @app.post("/api/printer/temperature/bed")
     def printer_bed_temp():
-        payload = request.get_json(silent=True) or {}
+        payload, err = _parse_optional_json()
+        if err is not None:
+            return err
+        assert payload is not None
         status_code, data = controller.set_bed_temp(payload.get("target"))
         return jsonify(data), status_code
 
     @app.post("/api/printer/speed")
     def printer_speed():
-        payload = request.get_json(silent=True) or {}
+        payload, err = _parse_optional_json()
+        if err is not None:
+            return err
+        assert payload is not None
         status_code, data = controller.set_print_speed(payload.get("percent"))
         return jsonify(data), status_code
 
@@ -204,7 +253,7 @@ if __name__ == "__main__":
     configure_logging(debug=debug_enabled)
     application = create_app(config=config)
     application.run(
-        host=server_cfg.get("host", "0.0.0.0"),
+        host=server_cfg.get("host", "127.0.0.1"),
         port=int(server_cfg.get("port", 5000)),
         debug=debug_enabled,
         threaded=True,

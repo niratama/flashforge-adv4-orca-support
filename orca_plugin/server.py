@@ -17,8 +17,10 @@ from urllib.parse import urlparse
 
 from bridge_controller import (
     BridgeController,
+    is_same_origin_request,
     load_config as _load_config,
     parse_bool_flag,
+    verify_api_key,
 )
 from flashforge_client import FlashforgeClient
 
@@ -42,11 +44,21 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     return _load_config(path=path, search_dirs=(PLUGIN_ROOT, REPO_ROOT))
 
 
+def _safe_json_for_script(value: Any) -> str:
+    """Serialize JSON safely for inline <script> embedding."""
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
 def render_dashboard_html(template_text: str, camera_url: str, printer_ip: str) -> str:
     """Render templates/index.html without requiring Jinja2."""
     rendered = template_text.replace("{{ printer_ip }}", html.escape(printer_ip, quote=True))
     rendered = rendered.replace("{{ camera_url }}", html.escape(camera_url, quote=True))
-    rendered = rendered.replace("{{ camera_url | tojson }}", json.dumps(camera_url))
+    rendered = rendered.replace("{{ camera_url | tojson }}", _safe_json_for_script(camera_url))
     return rendered
 
 
@@ -101,7 +113,6 @@ def _make_handler(
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(payload)
 
@@ -109,21 +120,28 @@ def _make_handler(
             body = json.dumps(data, ensure_ascii=False).encode("utf-8")
             self._send_bytes(status, "application/json; charset=utf-8", body)
 
-        def _read_body(self) -> bytes:
-            length = int(self.headers.get("Content-Length", "0") or "0")
+        def _read_body(self, max_bytes: int) -> bytes:
+            raw_len = self.headers.get("Content-Length", "0") or "0"
+            try:
+                length = int(raw_len)
+            except ValueError as exc:
+                raise ValueError("Invalid Content-Length header") from exc
+            if length < 0:
+                raise ValueError("Negative Content-Length header")
+            if length > max_bytes:
+                raise OverflowError(f"Request body exceeds limit ({length} > {max_bytes} bytes)")
             return self.rfile.read(length) if length > 0 else b""
 
         def _read_json_body(self, body: bytes) -> dict[str, Any]:
             if not body:
                 return {}
             parsed = json.loads(body.decode("utf-8"))
-            return parsed if isinstance(parsed, dict) else {}
+            if not isinstance(parsed, dict):
+                raise ValueError("JSON body must be an object")
+            return parsed
 
         def do_OPTIONS(self) -> None:
             self.send_response(HTTPStatus.NO_CONTENT)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Api-Key")
             self.send_header("Content-Length", "0")
             self.end_headers()
 
@@ -158,7 +176,6 @@ def _make_handler(
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
                 self.send_header("Cache-Control", "no-store")
-                self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 try:
                     for chunk in controller.camera_relay.iter_mjpeg_frames():
@@ -188,8 +205,39 @@ def _make_handler(
             self._send_json(HTTPStatus.NOT_FOUND, {"error": f"Not found: {path}"})
 
         def do_POST(self) -> None:
+            if not is_same_origin_request(
+                self.headers.get("Origin"),
+                self.headers.get("Referer"),
+                self.headers.get("Host"),
+            ):
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"ok": False, "error": "Cross-origin POST request rejected"},
+                )
+                return
+
+            if not verify_api_key(
+                controller.api_key,
+                self.headers.get("X-Api-Key"),
+                self.headers.get("Authorization"),
+            ):
+                self._send_json(
+                    HTTPStatus.UNAUTHORIZED,
+                    {"ok": False, "error": "Unauthorized"},
+                )
+                return
+
             path = urlparse(self.path).path
-            body = self._read_body()
+            max_upload = int(controller.server_cfg.get("max_upload_bytes", 100 * 1024 * 1024))
+            max_bytes = max_upload if path == "/api/files/local" else 1024 * 1024
+            try:
+                body = self._read_body(max_bytes=max_bytes)
+            except OverflowError as exc:
+                self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": str(exc)})
+                return
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                return
 
             if path == "/api/printer/pause":
                 self._send_json(*controller.pause_print())
@@ -201,26 +249,21 @@ def _make_handler(
                 self._send_json(*controller.cancel_print())
                 return
 
-            if path == "/api/printer/led":
-                try:
-                    payload = self._read_json_body(body)
-                except json.JSONDecodeError:
-                    payload = {}
-                self._send_json(*controller.set_led(bool(payload.get("on", True))))
-                return
-
             if path in {
+                "/api/printer/led",
                 "/api/printer/temperature/nozzle",
                 "/api/printer/temperature/bed",
                 "/api/printer/speed",
             }:
                 try:
                     payload = self._read_json_body(body)
-                except json.JSONDecodeError as exc:
+                except (json.JSONDecodeError, ValueError) as exc:
                     self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
                     return
 
-                if path == "/api/printer/temperature/nozzle":
+                if path == "/api/printer/led":
+                    self._send_json(*controller.set_led(bool(payload.get("on", True))))
+                elif path == "/api/printer/temperature/nozzle":
                     self._send_json(*controller.set_nozzle_temp(payload.get("target")))
                 elif path == "/api/printer/temperature/bed":
                     self._send_json(*controller.set_bed_temp(payload.get("target")))

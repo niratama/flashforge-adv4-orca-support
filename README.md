@@ -65,7 +65,7 @@ cp config-example.json config.json
     "camera_url": "http://192.168.1.100:8080/?action=stream"
   },
   "server": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 5000,
     "debug": false
   },
@@ -83,11 +83,16 @@ cp config-example.json config.json
 }
 ```
 
+- `server.host` / `server.port`: 待受アドレス・ポート（デフォルトは安全のため `127.0.0.1:5000`。別 PC から接続する場合のみ `0.0.0.0` 等に変更してください）
+- `server.api_key`（任意）: 設定した場合、制御・ファイルアップロード等の `POST` リクエストで `X-Api-Key`（または `Authorization: Bearer ...`）ヘッダによる認証を要求します
+- `server.max_upload_bytes`（任意）: `POST /api/files/local` の最大アップロードサイズ（バイト単位、デフォルト `104857600` = 100 MiB）
 - `camera.snapshot_only_while_printing`: `true` で印刷中のみ自動保存、`false` で常時保存
 - `camera.snapshot_interval_seconds` / `snapshot_max_count`: 保存間隔（秒）と最大保持枚数（超過分は古い順に削除）
 - `history.temperature_hours` / `sample_interval_seconds`: 温度グラフの保持時間（時間）とサンプリング間隔（秒）
 
-環境変数（`PRINTER_IP`, `PRINTER_PORT`, `CAMERA_URL`, `SERVER_PORT`）でも上書きできます。
+環境変数（`PRINTER_IP`, `PRINTER_PORT`, `CAMERA_URL`, `SERVER_HOST`, `SERVER_PORT`, `BRIDGE_API_KEY`）でも上書きできます。
+
+> **セキュリティ仕様**: `POST` リクエストにはブラウザからの CSRF 対策として `Origin` / `Referer` の同一オリジン検証が適用されます（OrcaSlicer や `curl` 等の非ブラウザクライアントはそのまま利用可能です）。また、`printer.camera_url` は `http://` / `https://` のみ許可されます。
 
 ### サーバー起動
 
@@ -163,7 +168,7 @@ uv run python -B scripts/tcp_proxy.py --target-host 192.168.1.25 | tee tmp/proxy
 
 - `--target-host`: 接続先プリンターの IP（デフォルト: `192.168.1.25`）
 - `--target-port`: 接続先ポート（デフォルト: `8899`）
-- `--listen-host` / `--listen-port`: プロキシの待受アドレス・ポート（デフォルト: `0.0.0.0:8899`）
+- `--listen-host` / `--listen-port`: プロキシの待受アドレス・ポート（デフォルト: `127.0.0.1:8899`。別端末や Windows 側から WSL 上のプロキシへ接続する場合は `--listen-host 0.0.0.0` を指定してください）
 - `--verbose-all`: 大きなファイル転送チャンクも含め全パケットを出力
 
 **キャプチャ手順の注意点:**

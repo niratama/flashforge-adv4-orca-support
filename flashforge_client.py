@@ -24,6 +24,7 @@ class FlashforgeClient:
 
     CHUNK_SIZE = 4096
     PACKET_MAGIC = b"\x5a\x5a\xa5\xa5"
+    MAX_RESPONSE_BYTES = 1024 * 1024
 
     def __init__(
         self,
@@ -112,6 +113,7 @@ class FlashforgeClient:
             self._sock.settimeout(timeout)
 
         chunks: list[bytes] = []
+        total_bytes = 0
         try:
             while True:
                 try:
@@ -126,6 +128,10 @@ class FlashforgeClient:
 
                 if not chunk:
                     raise FlashforgeError("Printer closed the connection.")
+
+                total_bytes += len(chunk)
+                if total_bytes > self.MAX_RESPONSE_BYTES:
+                    raise FlashforgeError("Printer response exceeded maximum allowed size.")
 
                 chunks.append(chunk)
                 decoded = b"".join(chunks).decode("utf-8", errors="replace")

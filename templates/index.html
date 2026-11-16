@@ -1068,10 +1068,15 @@
         ctx.restore();
 
         tooltip.style.display = "block";
-        tooltip.innerHTML =
-          `<div><strong>${fmtClock(nearest.ts)}</strong></div>` +
-          `<div>ヘッド: ${fmtTemp(nearest.nozzle_actual)}°C / ${fmtTemp(nearest.nozzle_target)}°C</div>` +
-          `<div>プラットフォーム: ${fmtTemp(nearest.bed_actual)}°C / ${fmtTemp(nearest.bed_target)}°C</div>`;
+        const timeDiv = document.createElement("div");
+        const timeStrong = document.createElement("strong");
+        timeStrong.textContent = fmtClock(nearest.ts);
+        timeDiv.appendChild(timeStrong);
+        const nozzleDiv = document.createElement("div");
+        nozzleDiv.textContent = `ヘッド: ${fmtTemp(nearest.nozzle_actual)}°C / ${fmtTemp(nearest.nozzle_target)}°C`;
+        const bedDiv = document.createElement("div");
+        bedDiv.textContent = `プラットフォーム: ${fmtTemp(nearest.bed_actual)}°C / ${fmtTemp(nearest.bed_target)}°C`;
+        tooltip.replaceChildren(timeDiv, nozzleDiv, bedDiv);
         const left = nx + 12 + tooltip.offsetWidth > w ? nx - tooltip.offsetWidth - 12 : nx + 12;
         tooltip.style.left = `${Math.max(6, left)}px`;
         tooltip.style.top = "10px";
@@ -1138,7 +1143,9 @@
 
       const total = snapshotsChrono.length;
       if (total === 0 || selectedSnapIndex < 0) {
-        preview.innerHTML = "<span>保存された静止画はありません</span>";
+        const emptySpan = document.createElement("span");
+        emptySpan.textContent = "保存された静止画はありません";
+        preview.replaceChildren(emptySpan);
         slider.disabled = true;
         slider.max = 0;
         slider.value = 0;
@@ -1146,12 +1153,15 @@
         nextBtn.disabled = true;
         timeEl.textContent = "--";
         countEl.textContent = "0 / 0";
-        thumbs.innerHTML = "";
+        thumbs.replaceChildren();
         return;
       }
 
       const item = snapshotsChrono[selectedSnapIndex];
-      preview.innerHTML = `<img src="${item.url}" alt="${item.filename}" />`;
+      const previewImg = document.createElement("img");
+      previewImg.src = item.url;
+      previewImg.alt = item.filename;
+      preview.replaceChildren(previewImg);
       slider.disabled = false;
       slider.min = 0;
       slider.max = total - 1;
@@ -1161,7 +1171,7 @@
       timeEl.textContent = item.label || item.filename;
       countEl.textContent = `${selectedSnapIndex + 1} / ${total}`;
 
-      thumbs.innerHTML = "";
+      thumbs.replaceChildren();
       // Show newest thumbnails first in the strip for quick access
       for (let i = total - 1; i >= 0; i--) {
         const s = snapshotsChrono[i];
@@ -1173,7 +1183,11 @@
           selectedSnapIndex = i;
           renderSnapshotViewer();
         };
-        btn.innerHTML = `<img src="${s.url}" alt="${s.filename}" loading="lazy" />`;
+        const thumbImg = document.createElement("img");
+        thumbImg.src = s.url;
+        thumbImg.alt = s.filename;
+        thumbImg.loading = "lazy";
+        btn.appendChild(thumbImg);
         thumbs.appendChild(btn);
       }
     }

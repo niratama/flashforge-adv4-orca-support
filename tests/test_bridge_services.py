@@ -234,6 +234,12 @@ class TestBridgeServices(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_camera_relay_rejects_non_http_scheme(self) -> None:
+        from bridge_services import CameraRelay
+
+        with self.assertRaises(ValueError):
+            CameraRelay(camera_url="file:///etc/passwd")
+
 
 if __name__ == "__main__":
     unittest.main()

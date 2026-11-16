@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from bridge_services import (
     BackgroundMonitor,
@@ -43,8 +45,12 @@ def load_config(
         printer_cfg["port"] = int(os.environ["PRINTER_PORT"])
     if os.getenv("CAMERA_URL"):
         printer_cfg["camera_url"] = os.environ["CAMERA_URL"]
+    if os.getenv("SERVER_HOST"):
+        server_cfg["host"] = os.environ["SERVER_HOST"]
     if os.getenv("SERVER_PORT"):
         server_cfg["port"] = int(os.environ["SERVER_PORT"])
+    if os.getenv("BRIDGE_API_KEY"):
+        server_cfg["api_key"] = os.environ["BRIDGE_API_KEY"]
 
     return config
 
@@ -66,6 +72,53 @@ def parse_bool_flag(value: str | None) -> bool:
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def validate_camera_url(url: str) -> str:
+    """Ensure camera_url uses http or https with a valid network location."""
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"Unsupported camera URL scheme or host: {url!r}")
+    return url
+
+
+def is_same_origin_request(
+    origin: str | None,
+    referer: str | None,
+    host_header: str | None,
+) -> bool:
+    """Verify Origin/Referer matches Host to block cross-origin browser CSRF."""
+    host = (host_header or "").strip().lower()
+    if origin is not None:
+        cleaned = origin.strip()
+        if not cleaned or cleaned.lower() == "null":
+            return False
+        parsed = urlparse(cleaned)
+        return bool(host) and parsed.netloc.lower() == host
+    if referer is not None:
+        cleaned = referer.strip()
+        if not cleaned:
+            return False
+        parsed = urlparse(cleaned)
+        return bool(host) and parsed.netloc.lower() == host
+    return True
+
+
+def verify_api_key(
+    configured_key: str | None,
+    provided_key: str | None,
+    auth_header: str | None = None,
+) -> bool:
+    """Verify X-Api-Key or Bearer token when an API key is configured."""
+    if not configured_key:
+        return True
+    if provided_key and hmac.compare_digest(configured_key, provided_key):
+        return True
+    if auth_header:
+        scheme, _, token = auth_header.strip().partition(" ")
+        if scheme.lower() == "bearer" and token and hmac.compare_digest(configured_key, token):
+            return True
+    return False
 
 
 def build_disconnected_status(
@@ -135,13 +188,19 @@ class BridgeController:
 
     @property
     def camera_url(self) -> str:
-        return self.printer_cfg.get(
+        raw = self.printer_cfg.get(
             "camera_url", f"http://{self.printer_cfg['ip']}:8080/?action=stream"
         )
+        return validate_camera_url(str(raw))
 
     @property
     def printer_ip(self) -> str:
         return str(self.printer_cfg["ip"])
+
+    @property
+    def api_key(self) -> str | None:
+        raw = self.server_cfg.get("api_key")
+        return str(raw) if raw else None
 
     def start(self) -> None:
         """Start background monitoring if enabled for this controller."""

@@ -209,6 +209,65 @@ class TestAppEndpoints(unittest.TestCase):
             self.assertEqual(cfg["printer"]["camera_url"], "http://10.0.0.50:8081/stream")
             self.assertEqual(cfg["server"]["port"], 5050)
 
+    def test_security_origin_api_key_invalid_json_and_size_limit(self) -> None:
+        # Cross-origin POST rejected with 403
+        cross_resp = self.client.post(
+            "/api/printer/pause",
+            headers={"Origin": "https://evil.example", "Host": "127.0.0.1:5000"},
+        )
+        self.assertEqual(cross_resp.status_code, 403)
+
+        # Same-origin POST allowed
+        same_resp = self.client.post(
+            "/api/printer/pause",
+            headers={"Origin": "http://127.0.0.1:5000", "Host": "127.0.0.1:5000"},
+        )
+        self.assertEqual(same_resp.status_code, 200)
+
+        # Invalid JSON on /api/printer/led returns 400
+        bad_json = self.client.post(
+            "/api/printer/led",
+            data="{bad",
+            content_type="application/json",
+        )
+        self.assertEqual(bad_json.status_code, 400)
+
+        # API key enforcement & MAX_CONTENT_LENGTH
+        secured_cfg = {
+            "printer": self.test_config["printer"],
+            "server": {
+                "host": "127.0.0.1",
+                "port": 5000,
+                "api_key": "secret-token",
+                "max_upload_bytes": 16,
+            },
+        }
+        secured_app = create_app(config=secured_cfg, client=self.mock_client)
+        secured_client = secured_app.test_client()
+
+        unauth = secured_client.post("/api/printer/pause")
+        self.assertEqual(unauth.status_code, 401)
+
+        wrong_key = secured_client.post(
+            "/api/printer/pause",
+            headers={"X-Api-Key": "wrong"},
+        )
+        self.assertEqual(wrong_key.status_code, 401)
+
+        authed = secured_client.post(
+            "/api/printer/pause",
+            headers={"X-Api-Key": "secret-token"},
+        )
+        self.assertEqual(authed.status_code, 200)
+
+        oversized = secured_client.post(
+            "/api/files/local",
+            data={"file": (io.BytesIO(b"A" * 100), "big.gcode")},
+            content_type="multipart/form-data",
+            headers={"X-Api-Key": "secret-token"},
+        )
+        self.assertEqual(oversized.status_code, 413)
+
 
 if __name__ == "__main__":
     unittest.main()

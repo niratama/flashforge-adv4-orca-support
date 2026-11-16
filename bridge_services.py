@@ -12,6 +12,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +230,9 @@ class CameraRelay:
         idle_grace_seconds: float = 5.0,
         connect_timeout: float = 5.0,
     ) -> None:
+        parsed = urlparse(camera_url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"Unsupported camera URL scheme or host: {camera_url!r}")
         self.camera_url = camera_url
         self._opener = opener
         self.idle_grace_seconds = idle_grace_seconds

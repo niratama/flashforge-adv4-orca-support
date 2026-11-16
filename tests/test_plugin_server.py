@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "orca_plugin") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "orca_plugin"))
 
-from server import BridgeServer  # noqa: E402
+from server import BridgeServer, render_dashboard_html  # noqa: E402
 from scripts.build_orca_plugin import build_plugin  # noqa: E402
 
 
@@ -164,6 +164,82 @@ class TestPluginBridgeServer(unittest.TestCase):
             self.assertLess(elapsed, 2.0)
         finally:
             resp.close()
+
+    def test_security_cors_origin_api_key_limits_and_html_escape(self) -> None:
+        # No wildcard CORS header
+        with urllib.request.urlopen(f"{self.base_url}/api/version", timeout=3) as resp:
+            self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
+
+        # Cross-origin POST rejected with 403
+        cross_req = urllib.request.Request(
+            f"{self.base_url}/api/printer/pause",
+            data=b"",
+            method="POST",
+            headers={"Origin": "https://evil.example"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(cross_req, timeout=3)
+        self.assertEqual(ctx.exception.code, 403)
+
+        # Invalid JSON on /api/printer/led returns 400
+        bad_json_req = urllib.request.Request(
+            f"{self.base_url}/api/printer/led",
+            data=b"{bad",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(bad_json_req, timeout=3)
+        self.assertEqual(ctx.exception.code, 400)
+
+        # render_dashboard_html escapes <script> breakout characters
+        rendered = render_dashboard_html(
+            "<script>const u = {{ camera_url | tojson }};</script>",
+            camera_url="http://127.0.0.1:8080/?x=</script><script>alert(1)</script>",
+            printer_ip="127.0.0.1",
+        )
+        self.assertNotIn("</script><script>", rendered)
+        self.assertIn("\\u003c/script\\u003e", rendered)
+
+        # API key + upload limit enforcement
+        secured_cfg = {
+            "printer": self.config["printer"],
+            "server": {
+                "host": "127.0.0.1",
+                "port": 0,
+                "api_key": "plugin-secret",
+                "max_upload_bytes": 16,
+            },
+        }
+        secured = BridgeServer(config=secured_cfg, client=self.mock_client, start_background=False)
+        s_port = secured.start()
+        try:
+            s_url = f"http://127.0.0.1:{s_port}"
+            unauth_req = urllib.request.Request(f"{s_url}/api/printer/pause", data=b"", method="POST")
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(unauth_req, timeout=3)
+            self.assertEqual(ctx.exception.code, 401)
+
+            auth_req = urllib.request.Request(
+                f"{s_url}/api/printer/pause",
+                data=b"",
+                method="POST",
+                headers={"X-Api-Key": "plugin-secret"},
+            )
+            with urllib.request.urlopen(auth_req, timeout=3) as resp:
+                self.assertEqual(resp.status, 200)
+
+            big_req = urllib.request.Request(
+                f"{s_url}/api/files/local",
+                data=b"A" * 64,
+                method="POST",
+                headers={"X-Api-Key": "plugin-secret"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(big_req, timeout=3)
+            self.assertEqual(ctx.exception.code, 413)
+        finally:
+            secured.stop()
 
 
 if __name__ == "__main__":

@@ -97,7 +97,7 @@ def handle_client(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="TCP proxy for Flashforge 8899 inspection")
-    parser.add_argument("--listen-host", default="0.0.0.0")
+    parser.add_argument("--listen-host", default="127.0.0.1")
     parser.add_argument("--listen-port", type=int, default=8899)
     parser.add_argument("--target-host", default="192.168.1.25")
     parser.add_argument("--target-port", type=int, default=8899)
