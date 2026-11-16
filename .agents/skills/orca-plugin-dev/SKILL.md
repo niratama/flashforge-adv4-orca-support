@@ -1,0 +1,66 @@
+---
+name: orca-plugin-dev
+description: >-
+  Guide and workflow for developing, modifying, packaging, and testing
+  OrcaSlicer 2.5.0+ Python plugins in this repository. Use when editing
+  orca_plugin/, scripts/build_orca_plugin.py, orca-plugin.json, or when
+  adding new OrcaSlicer plugin capabilities, permissions, or UI integrations.
+---
+
+# OrcaSlicer Plugin Development (Project Skill)
+
+This skill covers OrcaSlicer 2.5.0+ Python plugin development using both the
+official OrcaSlicer plugin architecture and this repository's conventions.
+
+## Core Rules for This Repository
+
+1. **Zero external runtime dependencies in the plugin**:
+   OrcaSlicer runs plugins inside an embedded CPython interpreter. Do not
+   require `Flask` or third-party packages in `orca_plugin/`. Use Python
+   standard library modules (e.g., `http.server.ThreadingHTTPServer`,
+   `email.parser.BytesParser`, `urllib.request`, `threading`).
+2. **Keep `plugin.py` testable outside OrcaSlicer**:
+   Guard `import orca` with `try ... except ImportError: orca = None` and
+   wrap `orca`-dependent classes in `if orca is not None:`.
+3. **Respect the `lib/` bundle layout**:
+   Only `plugin.py` (and `orca-plugin.json`) should sit at the top level of
+   the built plugin folder (`dist/flashforge_adv4_bridge/`). Place helper
+   modules (`server.py`, `bridge_controller.py`, `bridge_services.py`,
+   `flashforge_client.py`) under `lib/` in the bundle and configure `sys.path`
+   in `plugin.py` for both `lib/` (built) and repo root (dev/test).
+4. **Never block the OrcaSlicer UI thread**:
+   `ScriptPluginCapabilityBase.execute()` runs on the main/UI thread. Offload
+   blocking I/O or servers to `threading.Thread` (as `BridgeServer` does) and
+   never import external GUI toolkits (PyQt, wxPython, Tkinter); use
+   `orca.host.ui` when native/HTML UI is needed.
+5. **Declare permissions upfront**:
+   Call `orca.request_permissions(...)` inside `register_capabilities()` (guarded
+   with `hasattr(orca, "request_permissions")`) for `fs_read`, `fs_readwrite`,
+   `network_http`, `network_socket`, `threading`, etc., so the Audit Hook prompts
+   once cleanly instead of interrupting mid-operation.
+
+## Development Workflow
+
+1. **Edit plugin / shared logic**:
+   - Entrypoint & capability registration: [plugin.py](../../../../orca_plugin/plugin.py)
+   - Manifest: [orca-plugin.json](../../../../orca_plugin/orca-plugin.json)
+   - Stdlib HTTP server: [server.py](../../../../orca_plugin/server.py)
+   - Shared controller/services: [bridge_controller.py](../../../../bridge_controller.py), [bridge_services.py](../../../../bridge_services.py)
+2. **Update bundle script if files are added/renamed**:
+   - Edit [build_orca_plugin.py](../../../../scripts/build_orca_plugin.py) so all new files/assets are copied into `dist/flashforge_adv4_bridge/`.
+3. **Build the plugin bundle**:
+   ```bash
+   uv run python scripts/build_orca_plugin.py
+   ```
+4. **Run unit tests**:
+   ```bash
+   uv run python -m unittest tests/test_plugin_server.py
+   ```
+   (Run the full test suite with `uv run python -m unittest discover -s tests` when shared modules change.)
+5. **Deploy to OrcaSlicer (Windows)**:
+   Copy `dist/flashforge_adv4_bridge/` to `%APPDATA%\OrcaSlicer\orca_plugins\flashforge_adv4_bridge\`.
+
+## Reference Documentation
+
+- [OrcaSlicer Plugin System & API Reference](./references/orca_plugin_system.md) — Architecture, `@orca.plugin`, capabilities (`Script`, `Pages`, `PrinterAgent`, `SlicingPipeline`, `ResourceTexture`), Audit Hook & `request_permissions`, `orca.host.ui`, `ExecutionResult` / `PluginResult`.
+- [Repository Implementation Patterns](./references/repo_patterns.md) — Concrete patterns used in `orca_plugin/`, `build_orca_plugin.py`, and `tests/test_plugin_server.py`.
