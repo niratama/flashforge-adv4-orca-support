@@ -18,6 +18,7 @@ flashforge-adv4-orca-support/
 │   └── skills/
 │       └── orca-plugin-dev/ # OrcaSlicer プラグイン開発用 AI エージェントスキル
 ├── app.py                  # Flask Web サーバー & OctoPrint 互換 API
+├── bridge_controller.py    # Web/Plugin 共通コントローラー & 設定・セキュリティ検証
 ├── bridge_services.py      # カメラ中継・静止画保存・温度履歴（標準ライブラリのみ）
 ├── config-example.json     # プリンター・カメラ・履歴・サーバー設定テンプレート
 ├── flashforge_client.py    # Flashforge TCP (8899) クライアント
@@ -35,6 +36,7 @@ flashforge-adv4-orca-support/
 │   └── index.html          # Device タブ用ダッシュボード UI
 └── tests/
     ├── test_app.py
+    ├── test_bridge_controller.py
     ├── test_bridge_services.py
     ├── test_flashforge_client.py
     └── test_plugin_server.py
