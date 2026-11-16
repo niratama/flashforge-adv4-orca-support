@@ -129,7 +129,7 @@ uv run python -m unittest discover -s tests -v
 1. OrcaSlicer 左上のプリンター設定横にある **Wi-Fi / 接続アイコン** をクリックします。
 2. **Host Type（ホストタイプ）** で **`OctoPrint`** を選択します。
 3. **Hostname, IP or URL** に **`http://localhost:5000`**（別 PC で動かす場合はその IP とポート）を入力します。
-4. **API Key** は任意の文字列（または空欄、OrcaSlicer が要求する場合は `dummy` など）を入力し、**Test** を押して接続成功を確認します。
+4. **API Key** は、`server.api_key`（または環境変数 `BRIDGE_API_KEY`）を**未設定**の場合は空欄（OrcaSlicer が必須入力を要求する場合は `dummy` など任意の文字列）で構いません。**設定している場合**は、設定した API Key を入力し、**Test** を押して接続成功を確認します。
 5. **Device UI（デバイス画面）** を利用する場合も同じく `http://localhost:5000` が OrcaSlicer 内の **Device タブ** に表示されます。
 6. スライス後、**Print plate**（または Upload and Print）を実行すると `POST /api/files/local` 経由で Adventurer 4 へ Gコードが転送され、印刷が開始されます。
 
