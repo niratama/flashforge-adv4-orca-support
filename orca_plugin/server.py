@@ -54,11 +54,20 @@ def _safe_json_for_script(value: Any) -> str:
     )
 
 
-def render_dashboard_html(template_text: str, camera_url: str, printer_ip: str) -> str:
+def render_dashboard_html(
+    template_text: str,
+    camera_url: str,
+    printer_ip: str,
+    http_base_url: str = "",
+) -> str:
     """Render templates/index.html without requiring Jinja2."""
     rendered = template_text.replace("{{ printer_ip }}", html.escape(printer_ip, quote=True))
     rendered = rendered.replace("{{ camera_url }}", html.escape(camera_url, quote=True))
     rendered = rendered.replace("{{ camera_url | tojson }}", _safe_json_for_script(camera_url))
+    rendered = rendered.replace(
+        '{{ http_base_url | default("") | tojson }}',
+        _safe_json_for_script(http_base_url),
+    )
     return rendered
 
 

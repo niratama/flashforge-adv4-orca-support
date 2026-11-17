@@ -549,7 +549,7 @@
           </div>
         </h2>
         <div class="camera-box">
-          <img id="camera-img" src="/api/camera/stream" alt="Adventurer 4 Camera Stream" onerror="onCameraError()" onload="onCameraLoad()" />
+          <img id="camera-img" alt="Adventurer 4 Camera Stream" onerror="onCameraError()" onload="onCameraLoad()" />
           <div id="camera-fallback" class="camera-fallback">
             <div>カメラ映像を取得できませんでした</div>
             <div style="font-size: 0.8rem;">URL: <code>{{ camera_url }}</code></div>
@@ -681,6 +681,7 @@
 
   <script>
     const CAMERA_URL = {{ camera_url | tojson }};
+    const HTTP_BASE_URL = {{ http_base_url | default("") | tojson }};
     const API_KEY_STORAGE_KEY = "ff_bridge_api_key";
     let currentLedState = false;
     let cameraRetryTimer = null;
@@ -816,13 +817,21 @@
       }
 
       function cameraStreamUrl() {
-        if (hasOrca()) {
+        if (hasOrca() && !HTTP_BASE_URL) {
           return CAMERA_URL;
         }
-        return "/api/camera/stream?_t=" + Date.now();
+        return `${HTTP_BASE_URL}/api/camera/stream?_t=${Date.now()}`;
       }
 
-      return { request, cameraStreamUrl, isOrcaMode: hasOrca };
+      function snapshotUrl(rawUrl) {
+        if (!rawUrl) return "";
+        if (HTTP_BASE_URL && rawUrl.startsWith("/")) {
+          return `${HTTP_BASE_URL}${rawUrl}`;
+        }
+        return rawUrl;
+      }
+
+      return { request, cameraStreamUrl, snapshotUrl, isOrcaMode: hasOrca };
     })();
 
     function onCameraError() {
@@ -1351,7 +1360,7 @@
 
       const item = snapshotsChrono[selectedSnapIndex];
       const previewImg = document.createElement("img");
-      previewImg.src = item.url;
+      previewImg.src = BridgeTransport.snapshotUrl(item.url);
       previewImg.alt = item.filename;
       preview.replaceChildren(previewImg);
       slider.disabled = false;
@@ -1376,7 +1385,7 @@
           renderSnapshotViewer();
         };
         const thumbImg = document.createElement("img");
-        thumbImg.src = s.url;
+        thumbImg.src = BridgeTransport.snapshotUrl(s.url);
         thumbImg.alt = s.filename;
         thumbImg.loading = "lazy";
         btn.appendChild(thumbImg);
@@ -1398,6 +1407,16 @@
       renderSnapshotViewer();
     }
 
+    if (BridgeTransport.isOrcaMode()) {
+      const apiBtn = document.getElementById("api-key-toggle-btn");
+      const apiBar = document.getElementById("api-key-bar");
+      if (apiBtn) apiBtn.style.display = "none";
+      if (apiBar) apiBar.style.display = "none";
+    }
+    const cameraImgEl = document.getElementById("camera-img");
+    if (cameraImgEl) {
+      cameraImgEl.src = BridgeTransport.cameraStreamUrl();
+    }
     updateApiKeyButton();
     fetchTempHistory();
     fetchSnapshots(true);

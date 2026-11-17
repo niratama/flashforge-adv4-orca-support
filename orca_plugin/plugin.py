@@ -29,7 +29,7 @@ else:
         if str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
 
-from server import BridgeServer, load_config  # noqa: E402
+from server import BridgeServer, _resolve_asset, load_config, render_dashboard_html  # noqa: E402
 
 try:
     import orca
@@ -565,7 +565,71 @@ def _stop_bridge() -> None:
                 _bridge_instance = None
 
 
+class PagesBridgeMixin:
+    """Shared implementation for OrcaSlicer PagesPluginCapabilityBase tab UI."""
+
+    def get_name(self) -> str:
+        return "Adventurer 4"
+
+    def _get_bridge(self) -> BridgeServer | None:
+        if _bridge_instance is not None and _bridge_instance.is_running:
+            return _bridge_instance
+        bridge, _ = _start_bridge(_extract_orca_config(self) or None)
+        return bridge
+
+    def get_ui(self) -> str:
+        bridge = self._get_bridge()
+        if bridge is not None:
+            camera_url = bridge.controller.camera_url
+            printer_ip = bridge.controller.printer_ip
+            http_base_url = f"http://127.0.0.1:{bridge.port}"
+        else:
+            cfg = resolve_effective_config(_extract_orca_config(self) or None)
+            printer_cfg = cfg.get("printer", {})
+            printer_ip = str(printer_cfg.get("ip", "192.168.1.100"))
+            camera_url = str(printer_cfg.get("camera_url", f"http://{printer_ip}:8080/?action=stream"))
+            http_base_url = ""
+
+        template_path = _resolve_asset("templates/index.html")
+        template_text = template_path.read_text(encoding="utf-8")
+        return render_dashboard_html(
+            template_text,
+            camera_url=camera_url,
+            printer_ip=printer_ip,
+            http_base_url=http_base_url,
+        )
+
+    def on_message(self, data: Any) -> None:
+        if not isinstance(data, dict):
+            return
+        bridge = self._get_bridge()
+        if bridge is None:
+            self.post_message(  # type: ignore[attr-defined]
+                {
+                    "id": data.get("id"),
+                    "action": str(data.get("action") or data.get("type") or ""),
+                    "ok": False,
+                    "status": 503,
+                    "data": {"ok": False, "error": "Bridge server is not running"},
+                }
+            )
+            return
+        response = bridge.controller.handle_message(data)
+        self.post_message(response)  # type: ignore[attr-defined]
+
+
 if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
+
+    _HAS_ORCA_PAGES = hasattr(orca, "pages") and hasattr(
+        orca.pages, "PagesPluginCapabilityBase"
+    )
+
+    if _HAS_ORCA_PAGES:
+
+        class FlashforgePagesCapability(
+            PagesBridgeMixin, orca.pages.PagesPluginCapabilityBase
+        ):
+            """Native OrcaSlicer tab exposing the Adventurer 4 dashboard via window.orca."""
 
     class FlashforgeBridgeCapability(orca.script.ScriptPluginCapabilityBase):
         """Starts the Adventurer 4 local bridge when loaded by OrcaSlicer."""
@@ -643,6 +707,8 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
                 except Exception as exc:
                     logger.debug("request_permissions skipped/failed: %s", exc)
             orca.register_capability(FlashforgeBridgeCapability)
+            if _HAS_ORCA_PAGES:
+                orca.register_capability(FlashforgePagesCapability)
             _, info = _start_bridge(orca_cfg)
             logger.info("Flashforge Adventurer 4 Bridge registered: %s", info)
 

@@ -81,10 +81,10 @@ OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabi
 - [x] コントローラー層・`.gx` 変換・セキュリティ・プラグインライフサイクルの単体テストを拡充する（42 件パス）
 
 ### Phase 1 タスク（`Pages` 専用タブ実装）
-- [ ] [templates/index.html](./templates/index.html) の初期 `<img id="camera-img">` およびスナップショット画像 URL を `BridgeTransport` 経由でローカル HTTP ベース URL（`http://127.0.0.1:<port>`）対応にする
-- [ ] [orca_plugin/plugin.py](./orca_plugin/plugin.py)（または専用モジュール）に `PagesPluginCapabilityBase` サブクラスを追加し、`on_message()` → `BridgeController.handle_message()` → `post_message()` を接続する
-- [ ] `orca` モジュールをモックした `Pages` capability の単体テストを追加し、`scripts/build_orca_plugin.py` でプラグインバンドルを確認する
-- [ ] Windows 版 OrcaSlicer 2.5.0+ 実機で `Pages` タブの表示・操作・カメラ映像・リロード時同期を検証する
+- [x] [templates/index.html](./templates/index.html) の初期 `<img id="camera-img">` およびスナップショット画像 URL を `BridgeTransport` 経由でローカル HTTP ベース URL（`http://127.0.0.1:<port>`）対応にする
+- [x] [orca_plugin/plugin.py](./orca_plugin/plugin.py)（または専用モジュール）に `PagesPluginCapabilityBase` サブクラスを追加し、`on_message()` → `BridgeController.handle_message()` → `post_message()` を接続する
+- [x] `orca` モジュールをモックした `Pages` capability の単体テストを追加し、`scripts/build_orca_plugin.py` でプラグインバンドルを確認する
+- [x] Windows 版 OrcaSlicer 2.5.0+ 実機で `Pages` タブの表示・操作・カメラ映像・リロード時同期を検証する
 
 ### Phase 2 タスク（`PrinterAgent` ネイティブ統合）
 - [ ] Windows 版 OrcaSlicer 2.5.0+ 上で `orca.printer_agent.PrinterAgentBase` の実メソッド・コールバック仕様を確認する
