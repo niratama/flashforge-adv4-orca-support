@@ -48,6 +48,14 @@ _PRINT_SPEED_RE = re.compile(
     r"^\s*;\s*(default_print_speed|outer_wall_speed|inner_wall_speed)\s*=\s*([0-9]+(?:\.[0-9]+)?)",
     re.IGNORECASE | re.MULTILINE,
 )
+_RAFT_LAYERS_RE = re.compile(
+    r"^\s*;\s*raft_layers\s*=\s*(\d+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_WALL_LOOPS_RE = re.compile(
+    r"^\s*;\s*wall_loops\s*=\s*(\d+)",
+    re.IGNORECASE | re.MULTILINE,
+)
 _THUMBNAIL_BLOCK_RE = re.compile(
     r";\s*thumbnail\s+begin\s+(\d+)x(\d+)\s+\d+\s*\r?\n(.*?);\s*thumbnail\s+end",
     re.IGNORECASE | re.DOTALL,
@@ -218,6 +226,20 @@ def _parse_print_speed_mms(text: str) -> int:
         if preferred in found:
             return found[preferred]
     return 0
+
+
+def _parse_multi_extruder_type(text: str) -> int:
+    match = _RAFT_LAYERS_RE.search(text)
+    if not match:
+        return 0
+    return 5 if int(match.group(1)) > 0 else 1
+
+
+def _parse_perimeter_shells(text: str) -> int:
+    match = _WALL_LOOPS_RE.search(text)
+    if not match:
+        return 0
+    return _clamp_int(int(match.group(1)), _U16_MAX)
 
 
 def _paeth_predictor(a: int, b: int, c: int) -> int:
@@ -448,7 +470,9 @@ def _extract_xgcode_header_from_text(text: str) -> XgcodeHeader:
     return XgcodeHeader(
         print_time=_parse_print_time_seconds(text),
         filament_0_usage=_parse_filament_mm(text),
+        multi_extruder_type=_parse_multi_extruder_type(text),
         layer_height=_parse_layer_height_um(text),
+        perimeter_shells=_parse_perimeter_shells(text),
         print_speed=_parse_print_speed_mms(text),
         hotbed_temp=hotbed_temp,
         extruder_0_temp=extruder_0_temp,

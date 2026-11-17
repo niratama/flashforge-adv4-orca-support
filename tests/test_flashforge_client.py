@@ -176,6 +176,8 @@ class TestFlashforgeClient(unittest.TestCase):
             b"; hot_plate_temp = 70\n"
             b"; layer_height = 0.20\n"
             b"; outer_wall_speed = 65\n"
+            b"; raft_layers = 2\n"
+            b"; wall_loops = 3\n"
         )
         gx = FlashforgeClient.wrap_gcode_as_gx(gcode)
         self.assertEqual(gx[:16], b"xgcode 1.0\n\x00\x00\x00\x00\x00")
@@ -193,10 +195,10 @@ class TestFlashforgeClient(unittest.TestCase):
                 3723,  # print_time (1h 2m 3s)
                 1235,  # filament_0_usage (rounded mm)
                 0,     # filament_1_usage
-                0,     # multi_extruder_type
+                5,     # multi_extruder_type (raft_layers > 0 -> 5)
                 200,   # layer_height (0.20mm -> 200um)
                 0,     # reserved0
-                0,     # perimeter_shells
+                3,     # perimeter_shells (wall_loops = 3)
                 65,    # print_speed (outer_wall_speed = 65 mm/s)
                 60,    # hotbed_temp (from M140 S60)
                 205,   # extruder_0_temp (from M104 S205, prioritized over comment)
@@ -204,6 +206,11 @@ class TestFlashforgeClient(unittest.TestCase):
                 0,     # reserved1
             ),
         )
+
+        # raft_layers = 0 -> multi_extruder_type = 1
+        no_raft_header = extract_xgcode_header(b"; raft_layers = 0\n; wall_loops = 2\n")
+        self.assertEqual(no_raft_header.multi_extruder_type, 1)
+        self.assertEqual(no_raft_header.perimeter_shells, 2)
 
     def test_extract_xgcode_header_falls_back_to_comments_for_temps(self) -> None:
         gcode = (
