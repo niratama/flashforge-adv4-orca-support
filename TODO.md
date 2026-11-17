@@ -53,18 +53,39 @@ WSL 上で手動起動しているブリッジサーバー（`app.py`）を、Wi
 
 ---
 
-## 将来拡張 TODO: パターン B（ネイティブ統合プラグイン）への段階的移行準備
+## 機能拡張 完了済み（直近の追加実装）
 
-OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabilityBase` / `orca.printer_agent.PrinterAgentBase`）を踏まえ、現行のブリッジサーバー・パターン A プラグインを維持したまま、将来的なパターン B 化を見据えてモジュール分割とテスト拡充を進める。
+- [x] `xgcode 1.0`（`.gx`）ヘッダーの拡充（OrcaSlicer G-code からのメタデータ・サムネイル抽出、`multi_extruder_type` の raft / support フラグ、`perimeter_shells` 設定）と Web UI での造形ジョブ情報・サムネイル表示
+- [x] セキュリティ・認証強化（`server.api_key` による POST 認証、Cross-origin POST 検証、PNG zlib 展開サイズ上限、カメラ URL バリデーション）
+- [x] プラグイン設定 UI（[orca_plugin/plugin.py](./orca_plugin/plugin.py) の `has_config_ui()` / `get_config_ui()` / `get_default_config()`、UI からの `api_key` 除外、設定マージ）と起動時自動開始・終了時ハング修正（単体テスト 42 件パス）
+
+---
+
+## 将来拡張 TODO: パターン B（ネイティブ統合プラグイン）への段階的移行
+
+OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabilityBase` / `orca.printer_agent.PrinterAgentBase`）を踏まえた段階的移行計画です。
 
 ### 設計方針メモ
 - **移行戦略（ハイブリッド段階移行）**
-  - **Step 1（UI 統合: `Pages`）**: `PagesPluginCapabilityBase`（`window.orca.postMessage` / `onMessage`）で専用タブを構築。遅延ロード・リロード時の再初期化に備え、状態は Python 側で保持し UI 起動時に `{type: "ready"}` で同期する。
-  - **Step 2（完全ネイティブ: `PrinterAgent`）**: `PrinterAgentBase`（`orca.PluginType.PrinterConnection`）を実装し、`.gcode` → `.gx` ラップ・送信を直接ハンドリングする。なお OrcaSlicer 側で `Preferences -> Developer -> Experimental Features -> Use printer agents instead of print hosts`（デフォルト OFF）およびプリンター設定の `Printer Agent` 選択が必要なため、当面はパターン A（OctoPrint 互換受信）と共存・切替可能にする。
-- **カメラ配信**: `Pages` タブではカメラ URL 直接参照を基本とし、必要に応じて `CameraRelay` 経由のフレーム配信（低 fps 上限）を選択できる構成を想定。
+  - **Phase 1（`Pages` 先行 + ローカル HTTP 共存）**:
+    - `PagesPluginCapabilityBase`（`window.orca.postMessage` / `onMessage`）で OrcaSlicer 内に専用タブを追加し、共有の `BridgeController`（`handle_message()`）と接続する。
+    - `Print plate`（OctoPrint 互換アップロード）およびカメラストリーム／スナップショット画像配信は、Phase 1 では共存するローカル HTTP サーバー（`http://127.0.0.1:<port>/api/camera/...`）をそのまま参照・活用する。
+    - 遅延ロード・リロード時の再初期化に備え、状態は Python 側（`BridgeController`）で保持し、UI 起動時の `ready` / 定期ポーリングで同期する。
+  - **Phase 2（`PrinterAgent` 統合 + HTTP サーバーのオプション化）**:
+    - `PrinterAgentBase`（`orca.PluginType.PrinterConnection`）を実装し、`.gcode` → `.gx` ラップ・送信を直接ハンドリングする。
+    - `use_printer_agents`（`Preferences -> Developer -> Experimental Features`、デフォルト OFF）の有効化が必要なため、当面は設定で OctoPrint HTTP サーバーの起動有無を切り替えられるようにする。
 
-### 準備タスク（現行実装のリファクタリング・テスト拡充）
-- [x] HTTP 非依存のプラグインランタイム／コントローラー層（シングルトン管理・設定読み書き・コマンドディスパッチ）を切り出し、[app.py](./app.py) と [orca_plugin/server.py](./orca_plugin/server.py) の共通ロジックを集約する
-- [x] [templates/index.html](./templates/index.html) の通信処理をトランスポート層（`fetch` ベース / 将来の `window.orca` ベース）として抽象化する
-- [x] 切り出したランタイム／コントローラー層およびエッジケース（再接続、ライブチューニング、スナップショット、`.gx` 変換）に対する単体テストを拡充する
-- [ ] （実機検証時）OrcaSlicer 2.5.0 上で `orca.pages` / `orca.printer_agent` の実クラス・メソッドシグネチャを確認し、プロトタイプ検証を行う
+### 準備タスク（完了済み）
+- [x] HTTP 非依存のコントローラー層（[bridge_controller.py](./bridge_controller.py)）を切り出し、[app.py](./app.py) と [orca_plugin/server.py](./orca_plugin/server.py) の共通ロジックを集約する
+- [x] [templates/index.html](./templates/index.html) の通信処理を `BridgeTransport`（`fetch` / `window.orca`）として抽象化する
+- [x] コントローラー層・`.gx` 変換・セキュリティ・プラグインライフサイクルの単体テストを拡充する（42 件パス）
+
+### Phase 1 タスク（`Pages` 専用タブ実装）
+- [ ] [templates/index.html](./templates/index.html) の初期 `<img id="camera-img">` およびスナップショット画像 URL を `BridgeTransport` 経由でローカル HTTP ベース URL（`http://127.0.0.1:<port>`）対応にする
+- [ ] [orca_plugin/plugin.py](./orca_plugin/plugin.py)（または専用モジュール）に `PagesPluginCapabilityBase` サブクラスを追加し、`on_message()` → `BridgeController.handle_message()` → `post_message()` を接続する
+- [ ] `orca` モジュールをモックした `Pages` capability の単体テストを追加し、`scripts/build_orca_plugin.py` でプラグインバンドルを確認する
+- [ ] Windows 版 OrcaSlicer 2.5.0+ 実機で `Pages` タブの表示・操作・カメラ映像・リロード時同期を検証する
+
+### Phase 2 タスク（`PrinterAgent` ネイティブ統合）
+- [ ] Windows 版 OrcaSlicer 2.5.0+ 上で `orca.printer_agent.PrinterAgentBase` の実メソッド・コールバック仕様を確認する
+- [ ] `PrinterAgentBase` サブクラスを実装し、`Print plate` からのジョブ受信・ステータス通知・HTTP サーバー無効化オプションを追加する
