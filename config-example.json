@@ -21,5 +21,8 @@
   "history": {
     "temperature_hours": 4.0,
     "sample_interval_seconds": 5.0
+  },
+  "xgcode": {
+    "metadata_scan_bytes": 131072
   }
 }

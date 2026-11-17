@@ -218,6 +218,39 @@
       word-break: break-all;
     }
 
+    .job-meta-card {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .job-meta-thumb {
+      width: 80px;
+      height: 60px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #202020;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .job-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px 12px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      width: 100%;
+    }
+
+    .job-meta-grid strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
     .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -548,12 +581,25 @@
         <div class="progress-wrap">
           <div class="progress-header">
             <span id="machine-status">状態: --</span>
-            <span id="progress-percent">0%</span>
+            <span>
+              <span id="progress-bytes" style="color: var(--muted); margin-right: 6px;"></span>
+              <span id="progress-percent">0%</span>
+            </span>
           </div>
           <div class="progress-bar-bg">
             <div id="progress-fill" class="progress-bar-fill"></div>
           </div>
           <div class="file-info" id="current-file">ファイル: なし</div>
+          <div class="job-meta-card" id="job-meta-card" style="display: none;">
+            <img id="job-meta-thumb" class="job-meta-thumb" alt="ジョブサムネイル">
+            <div class="job-meta-grid">
+              <div>時間: <strong id="job-meta-time">--</strong></div>
+              <div>フィラメント: <strong id="job-meta-filament">--</strong></div>
+              <div>積層: <strong id="job-meta-layer">--</strong></div>
+              <div>速度: <strong id="job-meta-speed">--</strong></div>
+              <div style="grid-column: 1 / -1;">設定温度: <strong id="job-meta-temps">--</strong></div>
+            </div>
+          </div>
         </div>
 
         <div class="controls">
@@ -934,6 +980,10 @@
 
         const progress = data.progress || {};
         const pct = Number(progress.percent || 0).toFixed(1);
+        const bytesPrinted = Number(progress.bytes_printed || 0);
+        const bytesTotal = Number(progress.bytes_total || 0);
+        document.getElementById("progress-bytes").textContent =
+          bytesTotal > 0 ? `${formatBytes(bytesPrinted)} / ${formatBytes(bytesTotal)}` : "";
         document.getElementById("progress-percent").textContent = `${pct}%`;
         document.getElementById("progress-fill").style.width = `${pct}%`;
         const machineStatusEl = document.getElementById("machine-status");
@@ -943,6 +993,7 @@
 
         const fileText = data.current_file ? `ファイル: ${data.current_file}` : "ファイル: なし";
         document.getElementById("current-file").textContent = fileText;
+        updateJobMetadata(data.job_metadata);
 
         if (data.led !== null && data.led !== undefined) {
           currentLedState = Boolean(data.led);
@@ -958,6 +1009,50 @@
         connText.textContent = "サーバー通信エラー";
         updateCameraStatus(null);
       }
+    }
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function formatDurationSeconds(sec) {
+      const total = Number(sec || 0);
+      if (total <= 0) return "--";
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    function updateJobMetadata(meta) {
+      const card = document.getElementById("job-meta-card");
+      if (!meta) {
+        card.style.display = "none";
+        return;
+      }
+      card.style.display = "flex";
+      const thumb = document.getElementById("job-meta-thumb");
+      if (meta.thumbnail_data_url) {
+        thumb.src = meta.thumbnail_data_url;
+        thumb.style.display = "block";
+      } else {
+        thumb.style.display = "none";
+      }
+      document.getElementById("job-meta-time").textContent = formatDurationSeconds(meta.print_time);
+      document.getElementById("job-meta-filament").textContent =
+        meta.filament_0_usage > 0 ? `${(meta.filament_0_usage / 1000).toFixed(2)} m` : "--";
+      document.getElementById("job-meta-layer").textContent =
+        meta.layer_height > 0 ? `${(meta.layer_height / 1000).toFixed(2)} mm` : "--";
+      document.getElementById("job-meta-speed").textContent =
+        meta.print_speed > 0 ? `${meta.print_speed} mm/s` : "--";
+      const nozzle = meta.extruder_0_temp > 0 ? `${meta.extruder_0_temp}°C` : "--";
+      const bed = meta.hotbed_temp > 0 ? `${meta.hotbed_temp}°C` : "--";
+      document.getElementById("job-meta-temps").textContent = `ノズル ${nozzle} / ベッド ${bed}`;
     }
 
     function updateCameraStatus(cam) {

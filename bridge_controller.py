@@ -17,7 +17,12 @@ from bridge_services import (
     TemperatureHistory,
     build_services,
 )
-from flashforge_client import FlashforgeClient, FlashforgeError
+from flashforge_client import (
+    DEFAULT_METADATA_SCAN_BYTES,
+    FlashforgeClient,
+    FlashforgeError,
+    extract_job_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +168,11 @@ class BridgeController:
         self.base_dir = Path(base_dir)
         self.printer_cfg: dict[str, Any] = config["printer"]
         self.server_cfg: dict[str, Any] = config.get("server", {})
+        xgcode_cfg = config.get("xgcode") if isinstance(config.get("xgcode"), dict) else {}
+        raw_scan_bytes = xgcode_cfg.get("metadata_scan_bytes", DEFAULT_METADATA_SCAN_BYTES)
+        metadata_scan_bytes = None if raw_scan_bytes is None else int(raw_scan_bytes)
+        self._metadata_scan_bytes = metadata_scan_bytes
+        self._last_job_metadata: dict[str, Any] | None = None
 
         self.owns_client = client is None
         self.client = client or FlashforgeClient(
@@ -170,6 +180,7 @@ class BridgeController:
             port=int(self.printer_cfg.get("port", 8899)),
             timeout=float(self.printer_cfg.get("timeout", 5.0)),
             transfer_timeout=float(self.printer_cfg.get("transfer_timeout", 30.0)),
+            metadata_scan_bytes=metadata_scan_bytes,
         )
         self.should_start_background = (
             (client is None) if start_background is None else bool(start_background)
@@ -217,6 +228,15 @@ class BridgeController:
     # Printer Status & Controls
     # ------------------------------------------------------------------
 
+    def _matching_job_metadata(self, current_file: Any) -> dict[str, Any] | None:
+        meta = self._last_job_metadata
+        if not meta or not isinstance(current_file, str) or not current_file.strip():
+            return None
+        current_name = current_file.strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if current_name == meta.get("filename"):
+            return meta
+        return None
+
     def get_printer_status(self) -> dict[str, Any]:
         """Return full printer + camera status (always safe for polling)."""
         cam_status = self.camera_relay.get_status()
@@ -224,6 +244,7 @@ class BridgeController:
             status = self.client.get_full_status()
             self.monitor.observe_status(status)
             status["camera"] = cam_status
+            status["job_metadata"] = self._matching_job_metadata(status.get("current_file"))
             return status
         except FlashforgeError as exc:
             return build_disconnected_status(str(exc), camera_status=cam_status)
@@ -351,6 +372,15 @@ class BridgeController:
         except FlashforgeError as exc:
             logger.error("Upload/print failed for %s: %s", filename, exc)
             return 502, {"error": str(exc)}
+
+        try:
+            self._last_job_metadata = extract_job_metadata(
+                saved_name,
+                file_bytes,
+                scan_bytes=self._metadata_scan_bytes,
+            )
+        except Exception as exc:
+            logger.debug("Failed to extract job metadata for %s: %s", saved_name, exc)
 
         return 201, {
             "files": {

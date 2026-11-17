@@ -131,6 +131,49 @@ class TestBridgeController(unittest.TestCase):
             self.assertFalse(resp_unknown["ok"])
             self.assertEqual(resp_unknown["status"], 404)
 
+    def test_job_metadata_attached_only_when_current_file_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_client = MagicMock(spec=FlashforgeClient)
+            mock_client.send_file.return_value = "part.gx"
+            ctrl = BridgeController(
+                config=_sample_config(Path(tmpdir) / "snaps"),
+                base_dir=Path(tmpdir),
+                client=mock_client,
+                start_background=False,
+            )
+
+            gcode = (
+                b"M104 S215\nM140 S60\n"
+                b"; estimated printing time (normal mode) = 10m 23s\n"
+                b"; filament used [mm] = 530.0\n"
+                b"; layer_height = 0.2\n"
+                b"; outer_wall_speed = 60\n"
+            )
+            code, _ = ctrl.upload_local_file("part.gcode", gcode, should_print=True)
+            self.assertEqual(code, 201)
+
+            mock_client.get_full_status.return_value = {
+                "connected": True,
+                "machine_status": "BUILDING_FROM_SD",
+                "current_file": "0:/user/part.gx",
+                "temperatures": {},
+                "progress": {"is_printing": True, "bytes_printed": 500, "bytes_total": 1000, "percent": 50.0},
+            }
+            status = ctrl.get_printer_status()
+            self.assertIsNotNone(status["job_metadata"])
+            self.assertEqual(status["job_metadata"]["print_time"], 623)
+            self.assertEqual(status["job_metadata"]["filament_0_usage"], 530)
+            self.assertEqual(status["job_metadata"]["layer_height"], 200)
+            self.assertEqual(status["job_metadata"]["print_speed"], 60)
+            self.assertTrue(status["job_metadata"]["thumbnail_data_url"].startswith("data:image/bmp;base64,"))
+
+            # When printing another file started directly on the printer, job_metadata is None
+            mock_client.get_full_status.return_value["current_file"] = "other_local.gx"
+            status_other = ctrl.get_printer_status()
+            self.assertIsNone(status_other["job_metadata"])
+            self.assertEqual(status_other["current_file"], "other_local.gx")
+            self.assertEqual(status_other["progress"]["bytes_printed"], 500)
+
     def test_ownership_closes_owned_client_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             injected = MagicMock(spec=FlashforgeClient)
