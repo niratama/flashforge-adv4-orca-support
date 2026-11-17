@@ -54,7 +54,7 @@ FlashPrint（`450,932` バイトの `.gx` ファイル送信時）のキャプ�
    - 応答: `CMD M28 Received.\r\nWriting to file: /data/<filename>.gx\r\nok\r\n`
 2. **ファイル本体の送信（`raw` ストリーム / `.gx` コンテナ）**
    - `<file_size>` バイトの **生ファイルデータそのまま**（`xgcode 1.0\n\x00` ヘッダ 58 バイト + 80×60 24bit BMP `14,454` バイト + G-code 本体の `.gx` バイナリ）を送信する。
-   - 58 バイトの `xgcode 1.0` ヘッダ（リトルエンディアン）の `0x1C..0x39` にはメタデータ 12 フィールド（`print_time` [s], `filament_0_usage` [mm], `filament_1_usage` [mm], `multi_extruder_type`, `layer_height` [µm], `reserved0`, `perimeter_shells`, `print_speed` [mm/s], `hotbed_temp` [°C], `extruder_0_temp` [°C], `extruder_1_temp` [°C], `reserved1`）が格納される。`flashforge_client.py` では OrcaSlicer の G-code から `print_time`・`filament_0_usage`・`layer_height`・`print_speed`・`hotbed_temp`・`extruder_0_temp` および埋め込み PNG サムネイル（80×60 24bit BMP 変換）を自動設定する。
+   - 58 バイトの `xgcode 1.0` ヘッダ（リトルエンディアン）の `0x1C..0x39` にはメタデータ 12 フィールド（`print_time` [s], `filament_0_usage` [mm], `filament_1_usage` [mm], `multi_extruder_type`（ラフトあり `5` / なし `1`）, `layer_height` [µm], `reserved0`, `perimeter_shells`, `print_speed` [mm/s], `hotbed_temp` [°C], `extruder_0_temp` [°C], `extruder_1_temp` [°C], `reserved1`）が格納される。`flashforge_client.py` では OrcaSlicer の G-code から `print_time`・`filament_0_usage`・`multi_extruder_type`（`raft_layers`）・`layer_height`・`perimeter_shells`（`wall_loops`）・`print_speed`・`hotbed_temp`・`extruder_0_temp` および埋め込み PNG サムネイル（80×60 24bit BMP 変換）を自動設定する。
    - **パケットヘッダ（`0x5a5aa5a5`）や 4096 バイト単位の `0x00` パディングは付与しない**。
    - **送信中にプリンター側からチャンクごとの `ok` 応答は返らない**。
    - 4096 バイトチャンクあたり数ミリ秒のペーシングを入れ、最終チャンク送信後に `150ms` 程度の待機と `TCP_NODELAY` を併用して `~M29` がデータ末尾と同一 TCP セグメントに結合されないようにする（待機なし一括送信時は `~M29` がタイムアウトする）。
