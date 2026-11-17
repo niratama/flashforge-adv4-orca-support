@@ -177,6 +177,7 @@ class TestFlashforgeClient(unittest.TestCase):
             b"; layer_height = 0.20\n"
             b"; outer_wall_speed = 65\n"
             b"; raft_layers = 2\n"
+            b"; enable_support = 1\n"
             b"; wall_loops = 3\n"
         )
         gx = FlashforgeClient.wrap_gcode_as_gx(gcode)
@@ -195,7 +196,7 @@ class TestFlashforgeClient(unittest.TestCase):
                 3723,  # print_time (1h 2m 3s)
                 1235,  # filament_0_usage (rounded mm)
                 0,     # filament_1_usage
-                5,     # multi_extruder_type (raft_layers > 0 -> 5)
+                13,    # multi_extruder_type (0x01 | 0x04 raft | 0x08 support)
                 200,   # layer_height (0.20mm -> 200um)
                 0,     # reserved0
                 3,     # perimeter_shells (wall_loops = 3)
@@ -207,10 +208,11 @@ class TestFlashforgeClient(unittest.TestCase):
             ),
         )
 
-        # raft_layers = 0 -> multi_extruder_type = 1
-        no_raft_header = extract_xgcode_header(b"; raft_layers = 0\n; wall_loops = 2\n")
-        self.assertEqual(no_raft_header.multi_extruder_type, 1)
-        self.assertEqual(no_raft_header.perimeter_shells, 2)
+        # Verify raft/support flag combinations
+        self.assertEqual(extract_xgcode_header(b"; raft_layers = 0\n; enable_support = 0\n; wall_loops = 2\n").multi_extruder_type, 1)
+        self.assertEqual(extract_xgcode_header(b"; raft_layers = 2\n; enable_support = 0\n").multi_extruder_type, 5)
+        self.assertEqual(extract_xgcode_header(b"; raft_layers = 0\n; enable_support = 1\n").multi_extruder_type, 9)
+        self.assertEqual(extract_xgcode_header(b"; wall_loops = 2\n").perimeter_shells, 2)
 
     def test_extract_xgcode_header_falls_back_to_comments_for_temps(self) -> None:
         gcode = (

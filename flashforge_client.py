@@ -52,6 +52,10 @@ _RAFT_LAYERS_RE = re.compile(
     r"^\s*;\s*raft_layers\s*=\s*(\d+)",
     re.IGNORECASE | re.MULTILINE,
 )
+_ENABLE_SUPPORT_RE = re.compile(
+    r"^\s*;\s*enable_support\s*=\s*(\d+)",
+    re.IGNORECASE | re.MULTILINE,
+)
 _WALL_LOOPS_RE = re.compile(
     r"^\s*;\s*wall_loops\s*=\s*(\d+)",
     re.IGNORECASE | re.MULTILINE,
@@ -229,10 +233,16 @@ def _parse_print_speed_mms(text: str) -> int:
 
 
 def _parse_multi_extruder_type(text: str) -> int:
-    match = _RAFT_LAYERS_RE.search(text)
-    if not match:
+    raft_match = _RAFT_LAYERS_RE.search(text)
+    support_match = _ENABLE_SUPPORT_RE.search(text)
+    if not raft_match and not support_match:
         return 0
-    return 5 if int(match.group(1)) > 0 else 1
+    flags = 0x01
+    if raft_match and int(raft_match.group(1)) > 0:
+        flags |= 0x04
+    if support_match and int(support_match.group(1)) > 0:
+        flags |= 0x08
+    return flags
 
 
 def _parse_perimeter_shells(text: str) -> int:
