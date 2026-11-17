@@ -368,9 +368,13 @@ def _decode_png_rgb(png_bytes: bytes) -> tuple[int, int, bytearray] | None:
     if color_type == 3 and len(palette) < 3:
         return None
 
+    expected_len = height * (1 + width * channels)
     try:
-        raw = zlib.decompress(b"".join(idat_chunks))
+        decompressor = zlib.decompressobj()
+        raw = decompressor.decompress(b"".join(idat_chunks), max_length=expected_len + 1)
     except zlib.error:
+        return None
+    if decompressor.unconsumed_tail or not decompressor.eof or len(raw) != expected_len:
         return None
 
     unfiltered = _unfilter_png_scanlines(raw, width, height, channels)

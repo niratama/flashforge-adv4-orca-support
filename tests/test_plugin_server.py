@@ -272,7 +272,12 @@ class TestPluginConfigUI(unittest.TestCase):
         html_out = plugin_mod.build_config_ui_html(
             {
                 "printer": {"ip": "192.168.1.100</script>", "port": 8899},
-                "server": {"host": "127.0.0.1", "port": 5000, "debug": False},
+                "server": {
+                    "host": "127.0.0.1",
+                    "port": 5000,
+                    "debug": False,
+                    "api_key": "super-secret-do-not-embed",
+                },
             }
         )
         self.assertIn("window.orca.getConfig", html_out)
@@ -282,6 +287,7 @@ class TestPluginConfigUI(unittest.TestCase):
         self.assertIn('id="camera_snapshot_enabled"', html_out)
         self.assertIn('id="history_temperature_hours"', html_out)
         self.assertIn("\\u003c/script\\u003e", html_out)
+        self.assertNotIn("super-secret-do-not-embed", html_out)
 
 
 if __name__ == "__main__":

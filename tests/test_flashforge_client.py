@@ -298,6 +298,28 @@ class TestFlashforgeClient(unittest.TestCase):
         bad_gx = FlashforgeClient.wrap_gcode_as_gx(bad_gcode)
         self.assertEqual(bad_gx[58 + 54 : 14512], b"\x20\x20\x20" * (80 * 60))
 
+        # Oversized zlib stream (decompression bomb) is rejected safely
+        def make_chunk(tag: bytes, data: bytes) -> bytes:
+            crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+        ihdr_1x1 = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+        bomb_idat = zlib.compress(b"\x00" * 10000)
+        bomb_png = (
+            b"\x89PNG\r\n\x1a\n"
+            + make_chunk(b"IHDR", ihdr_1x1)
+            + make_chunk(b"IDAT", bomb_idat)
+            + make_chunk(b"IEND", b"")
+        )
+        bomb_b64 = base64.b64encode(bomb_png).decode("ascii")
+        bomb_gcode = (
+            b"; thumbnail begin 1x1 10\n; "
+            + bomb_b64.encode("ascii")
+            + b"\n; thumbnail end\nG28\n"
+        )
+        bomb_gx = FlashforgeClient.wrap_gcode_as_gx(bomb_gcode)
+        self.assertEqual(bomb_gx[58 + 54 : 14512], b"\x20\x20\x20" * (80 * 60))
+
     def test_connection_error(self) -> None:
         bad_client = FlashforgeClient("127.0.0.1", port=1, timeout=0.5)
         with self.assertRaises(FlashforgeError):

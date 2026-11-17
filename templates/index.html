@@ -1041,6 +1041,7 @@
         thumb.src = meta.thumbnail_data_url;
         thumb.style.display = "block";
       } else {
+        thumb.removeAttribute("src");
         thumb.style.display = "none";
       }
       document.getElementById("job-meta-time").textContent = formatDurationSeconds(meta.print_time);

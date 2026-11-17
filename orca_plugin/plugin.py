@@ -108,7 +108,10 @@ def _safe_json_for_inline_script(value: Any) -> str:
 
 def build_config_ui_html(default_config: dict[str, Any]) -> str:
     """Build a self-contained HTML/JS form for OrcaSlicer's plugin Config tab."""
-    default_json = _safe_json_for_inline_script(default_config)
+    sanitized_default = copy.deepcopy(default_config)
+    if isinstance(sanitized_default.get("server"), dict):
+        sanitized_default["server"].pop("api_key", None)
+    default_json = _safe_json_for_inline_script(sanitized_default)
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -436,13 +439,19 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
       throw new Error("待受ポートは 1〜65535 の整数で指定してください。");
     }}
 
+    const rawCameraUrl = document.getElementById("printer_camera_url").value.trim();
+    const cameraUrl = rawCameraUrl || ("http://" + printerIp + ":8080/?action=stream");
+    if (!/^https?:\\/\\/[^/\\s]+/i.test(cameraUrl)) {{
+      throw new Error("カメラストリーム URL は http:// または https:// で指定してください。");
+    }}
+
     return {{
       printer: {{
         ip: printerIp,
         port: printerPort,
         timeout: parseFloat(document.getElementById("printer_timeout").value) || 5.0,
         transfer_timeout: parseFloat(document.getElementById("printer_transfer_timeout").value) || 30.0,
-        camera_url: document.getElementById("printer_camera_url").value.trim() || ("http://" + printerIp + ":8080/?action=stream")
+        camera_url: cameraUrl
       }},
       server: {{
         host: serverHost,
