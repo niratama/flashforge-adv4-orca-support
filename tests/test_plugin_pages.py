@@ -81,10 +81,15 @@ class TestPluginPagesCapability(unittest.TestCase):
         self.assertEqual(cap.posted[0]["status"], 503)
 
     def test_start_bridge_respects_server_enabled_false(self) -> None:
+        import urllib.error
+        import urllib.request
+
         prev_bridge = orca_plugin_mod._bridge_instance
+        prev_cam = orca_plugin_mod._camera_server_instance
         prev_ctrl = orca_plugin_mod._controller_instance
         prev_cfg = dict(orca_plugin_mod._cached_orca_config)
         orca_plugin_mod._bridge_instance = None
+        orca_plugin_mod._camera_server_instance = None
         orca_plugin_mod._controller_instance = None
         orca_plugin_mod._cached_orca_config = {}
         try:
@@ -92,13 +97,28 @@ class TestPluginPagesCapability(unittest.TestCase):
             self.assertIsNone(bridge)
             self.assertIn("disabled", info)
             self.assertIsNotNone(orca_plugin_mod._controller_instance)
+            self.assertIsNotNone(orca_plugin_mod._camera_server_instance)
+            self.assertTrue(orca_plugin_mod._camera_server_instance.is_running)
+
+            cam_port = orca_plugin_mod._camera_server_instance.port
+            self.assertGreater(cam_port, 0)
+            self.assertEqual(
+                orca_plugin_mod._resolve_camera_url_for_agent(),
+                f"http://127.0.0.1:{cam_port}/api/camera/stream",
+            )
 
             cap = _FakePagesCapability()
             html = cap.get_ui()
-            self.assertIn('const HTTP_BASE_URL = "";', html)
+            self.assertIn(f'const HTTP_BASE_URL = "http://127.0.0.1:{cam_port}";', html)
+
+            # CameraRelayServer must NOT expose OctoPrint / Web UI endpoints
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(f"http://127.0.0.1:{cam_port}/api/version", timeout=2)
+            self.assertEqual(ctx.exception.code, 404)
         finally:
             orca_plugin_mod._stop_bridge()
             orca_plugin_mod._bridge_instance = prev_bridge
+            orca_plugin_mod._camera_server_instance = prev_cam
             orca_plugin_mod._controller_instance = prev_ctrl
             orca_plugin_mod._cached_orca_config = prev_cfg
 

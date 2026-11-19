@@ -34,6 +34,7 @@ from printer_agent import PrinterAgentMixin  # noqa: E402
 from server import (  # noqa: E402
     PLUGIN_ROOT,
     BridgeServer,
+    CameraRelayServer,
     _resolve_asset,
     load_config,
     render_dashboard_html,
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 _bridge_lock = threading.Lock()
 _controller_instance: BridgeController | None = None
 _bridge_instance: BridgeServer | None = None
+_camera_server_instance: CameraRelayServer | None = None
 _atexit_registered = False
 _cached_orca_config: dict[str, Any] = {}
 
@@ -570,7 +572,7 @@ def _ensure_controller(orca_config: dict[str, Any] | None = None) -> BridgeContr
 
 def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServer | None, str]:
     """Start the shared controller and (if server.enabled) the local HTTP bridge server."""
-    global _bridge_instance, _atexit_registered, _cached_orca_config
+    global _bridge_instance, _camera_server_instance, _atexit_registered, _cached_orca_config
     with _bridge_lock:
         if orca_config:
             _cached_orca_config = deep_merge_dicts(_cached_orca_config, orca_config)
@@ -586,7 +588,37 @@ def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServ
                 except Exception as exc:
                     logger.warning("BridgeServer stop failed while disabling HTTP: %s", exc)
                 _bridge_instance = None
-            return None, "HTTP bridge disabled (native mode)"
+
+            if (
+                _camera_server_instance is not None
+                and _camera_server_instance.is_running
+                and _camera_server_instance.controller is controller
+            ):
+                cam_port = _camera_server_instance.port
+                return None, f"HTTP bridge disabled (native mode, camera relay: http://127.0.0.1:{cam_port})"
+
+            if _camera_server_instance is not None:
+                try:
+                    _camera_server_instance.stop()
+                except Exception as exc:
+                    logger.warning("CameraRelayServer restart stop failed: %s", exc)
+                _camera_server_instance = None
+
+            cam_server = CameraRelayServer(controller=controller, host="127.0.0.1", port=0)
+            try:
+                cam_port = cam_server.start()
+                _camera_server_instance = cam_server
+                return None, f"HTTP bridge disabled (native mode, camera relay: http://127.0.0.1:{cam_port})"
+            except OSError as exc:
+                logger.warning("CameraRelayServer failed to start: %s", exc)
+                return None, "HTTP bridge disabled (native mode)"
+
+        if _camera_server_instance is not None:
+            try:
+                _camera_server_instance.stop()
+            except Exception as exc:
+                logger.warning("CameraRelayServer stop failed: %s", exc)
+            _camera_server_instance = None
 
         if _bridge_instance is not None and _bridge_instance.is_running:
             if _bridge_instance.config == cfg and _bridge_instance.controller is controller:
@@ -612,7 +644,7 @@ def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServ
 
 
 def _stop_bridge() -> None:
-    global _bridge_instance, _controller_instance
+    global _bridge_instance, _camera_server_instance, _controller_instance
     with _bridge_lock:
         if _controller_instance is not None:
             try:
@@ -621,6 +653,13 @@ def _stop_bridge() -> None:
                 logger.warning("BridgeController stop failed: %s", exc)
             finally:
                 _controller_instance = None
+        if _camera_server_instance is not None:
+            try:
+                _camera_server_instance.stop()
+            except Exception as exc:
+                logger.warning("CameraRelayServer stop failed: %s", exc)
+            finally:
+                _camera_server_instance = None
         if _bridge_instance is not None:
             try:
                 _bridge_instance.stop()
@@ -656,7 +695,12 @@ class PagesBridgeMixin:
         if controller is not None:
             camera_url = controller.camera_url
             printer_ip = controller.printer_ip
-            http_base_url = f"http://127.0.0.1:{bridge.port}" if bridge is not None else ""
+            if bridge is not None:
+                http_base_url = f"http://127.0.0.1:{bridge.port}"
+            elif _camera_server_instance is not None and _camera_server_instance.is_running:
+                http_base_url = f"http://127.0.0.1:{_camera_server_instance.port}"
+            else:
+                http_base_url = ""
         else:
             cfg = resolve_effective_config(_extract_orca_config(self) or None)
             printer_cfg = cfg.get("printer", {})
@@ -695,6 +739,8 @@ class PagesBridgeMixin:
 def _resolve_camera_url_for_agent() -> str:
     if _bridge_instance is not None and _bridge_instance.is_running:
         return f"http://127.0.0.1:{_bridge_instance.port}/api/camera/stream"
+    if _camera_server_instance is not None and _camera_server_instance.is_running:
+        return f"http://127.0.0.1:{_camera_server_instance.port}/api/camera/stream"
     if _controller_instance is not None:
         return _controller_instance.camera_url
     return ""
@@ -807,6 +853,7 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
                             f"('{printer_ip}', {printer_port})",
                             f"('{server_host}', {server_port})",
                             f"('127.0.0.1', {server_port})",
+                            "('127.0.0.1', 0)",
                         ],
                         threading=True,
                     )

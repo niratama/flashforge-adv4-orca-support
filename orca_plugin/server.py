@@ -398,6 +398,105 @@ class BridgeServer:
             self._thread = None
 
 
+def _make_camera_relay_handler(controller: BridgeController) -> type[BaseHTTPRequestHandler]:
+    """Minimal read-only HTTP handler serving only MJPEG relay and saved snapshots."""
+
+    class CameraRelayRequestHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, format: str, *args: Any) -> None:
+            logger.debug("%s - %s", self.address_string(), format % args)
+
+        def do_GET(self) -> None:
+            path = urlparse(self.path).path
+
+            if path == "/api/camera/stream":
+                self.close_connection = True
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    for chunk in controller.camera_relay.iter_mjpeg_frames():
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                return
+
+            if path.startswith("/api/camera/snapshots/"):
+                filename = path[len("/api/camera/snapshots/") :]
+                snap_path = controller.get_snapshot_path(filename)
+                if snap_path is None:
+                    body = b'{"error":"Snapshot not found"}'
+                    self.send_response(HTTPStatus.NOT_FOUND)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                payload = snap_path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+
+            body = b'{"error":"Not found"}'
+            self.send_response(HTTPStatus.NOT_FOUND)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    return CameraRelayRequestHandler
+
+
+class CameraRelayServer:
+    """Lightweight loopback-only ephemeral HTTP server for MJPEG relay & snapshot images."""
+
+    def __init__(self, controller: BridgeController, host: str = "127.0.0.1", port: int = 0) -> None:
+        self.controller = controller
+        self.host = host
+        self.port = int(port)
+        self._httpd: ThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._httpd is not None and self._thread is not None and self._thread.is_alive()
+
+    def start(self) -> int:
+        if self.is_running and self._httpd is not None:
+            return int(self._httpd.server_address[1])
+
+        handler_cls = _make_camera_relay_handler(self.controller)
+        self._httpd = _DaemonThreadingHTTPServer((self.host, self.port), handler_cls)
+        self.port = int(self._httpd.server_address[1])
+        self._thread = threading.Thread(
+            target=self._httpd.serve_forever,
+            name="flashforge-adv4-camera-relay",
+            daemon=True,
+        )
+        self._thread.start()
+        logger.info("CameraRelayServer listening on http://%s:%d", self.host, self.port)
+        return self.port
+
+    def stop(self) -> None:
+        if self._httpd is not None:
+            try:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+            except OSError:
+                pass
+            finally:
+                self._httpd = None
+        if self._thread is not None:
+            self._thread.join(timeout=3.0)
+            self._thread = None
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.DEBUG if os.getenv("LOG_LEVEL", "").upper() == "DEBUG" else logging.INFO,
