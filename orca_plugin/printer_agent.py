@@ -43,6 +43,7 @@ AGENT_ID = "flashforge_adv4"
 AGENT_NAME = "Flashforge Adventurer 4"
 AGENT_VERSION = "0.2.0"
 AGENT_DESCRIPTION = "Native TCP 8899 printer agent for Flashforge Adventurer 4."
+DEFAULT_MODEL_ID = "Flashforge Adventurer 4 Series"
 
 
 def extract_gcode_from_file(
@@ -165,11 +166,13 @@ class PrinterAgentMixin:
         self,
         controller_provider: Callable[[], BridgeController | None] | None = None,
         camera_url_provider: Callable[[], str] | None = None,
+        model_id_provider: Callable[[], str] | None = None,
         orca_pa_module: Any | None = None,
         status_poll_interval: float = 2.5,
     ) -> None:
         self._controller_provider = controller_provider
         self._camera_url_provider = camera_url_provider
+        self._model_id_provider = model_id_provider
         self._orca_pa = orca_pa_module
         self._status_poll_interval = max(0.2, float(status_poll_interval))
 
@@ -189,6 +192,16 @@ class PrinterAgentMixin:
         ctrl = self._get_controller()
         ip = ctrl.printer_ip if ctrl is not None else "192.168.1.100"
         return f"ff_adv4_{ip.replace('.', '_')}"
+
+    def _resolve_model_id(self) -> str:
+        if self._model_id_provider is not None:
+            try:
+                model = str(self._model_id_provider() or "").strip()
+                if model:
+                    return model
+            except Exception as exc:
+                logger.debug("model_id_provider failed: %s", exc)
+        return DEFAULT_MODEL_ID
 
     # ------------------------------------------------------------------
     # Metadata & Callback Registration
@@ -275,12 +288,13 @@ class PrinterAgentMixin:
         ctrl = self._get_controller()
         printer_ip = ctrl.printer_ip if ctrl is not None else "192.168.1.100"
         dev_id = self._default_dev_id()
+        model_id = self._resolve_model_id()
 
         payload = {
             "dev_name": AGENT_NAME,
             "dev_id": dev_id,
             "dev_ip": printer_ip,
-            "dev_type": "Adventurer 4",
+            "dev_type": model_id,
             "dev_signal": "0",
             "connect_type": "lan",
             "bind_state": "free",
@@ -298,7 +312,7 @@ class PrinterAgentMixin:
         dev_id = self._default_dev_id() if not dev_ip else f"ff_adv4_{dev_ip.replace('.', '_')}"
         detect.dev_id = dev_id
         detect.dev_name = AGENT_NAME
-        detect.model_id = "Adventurer 4"
+        detect.model_id = self._resolve_model_id()
         detect.version = AGENT_VERSION
         detect.connect_type = "lan"
         detect.bind_state = "free"

@@ -746,6 +746,21 @@ def _resolve_camera_url_for_agent() -> str:
     return ""
 
 
+def _resolve_model_id_for_agent() -> str:
+    if orca is not None and hasattr(orca, "host") and hasattr(orca.host, "preset_bundle"):
+        try:
+            bundle = orca.host.preset_bundle()
+            if bundle is not None:
+                preset = bundle.current_printer_preset()
+                if preset is not None:
+                    val = preset.config_value("printer_model")
+                    if val:
+                        return str(val).strip()
+        except Exception as exc:
+            logger.debug("Failed to read current printer_model from orca.host: %s", exc)
+    return ""
+
+
 if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
 
     _HAS_ORCA_PAGES = hasattr(orca, "pages") and hasattr(
@@ -775,6 +790,7 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
                     self,
                     controller_provider=_ensure_controller,
                     camera_url_provider=_resolve_camera_url_for_agent,
+                    model_id_provider=_resolve_model_id_for_agent,
                     orca_pa_module=orca.printer_agent,
                 )
 

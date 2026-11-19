@@ -135,6 +135,7 @@ class TestPrinterAgent(unittest.TestCase):
             self.assertTrue(agent.start_discovery(True, False))
             self.assertEqual(len(ssdp_msgs), 1)
             self.assertEqual(ssdp_msgs[0]["dev_ip"], "192.168.1.77")
+            self.assertEqual(ssdp_msgs[0]["dev_type"], "Flashforge Adventurer 4 Series")
             self.assertEqual(ssdp_msgs[0]["connect_type"], "lan")
 
             detect = SimpleNamespace()
@@ -143,6 +144,7 @@ class TestPrinterAgent(unittest.TestCase):
                 BAMBU_NETWORK_SUCCESS,
             )
             self.assertEqual(detect.dev_name, AGENT_NAME)
+            self.assertEqual(detect.model_id, "Flashforge Adventurer 4 Series")
 
             connected_evt = threading.Event()
             msg_evt = threading.Event()
