@@ -96,3 +96,19 @@ Calling `orca.request_permissions(...)` inside `register_capabilities()` present
   win.close()
   ```
 - **Lifecycle**: Capabilities and plugins support `on_load()`, `on_unload()`, and `on_lifecycle_event(event, ctx)` for observing application events (project save/load, slicing).
+
+## 7. Pages Capability (`orca.pages.PagesPluginCapabilityBase`)
+
+- Subclass `orca.pages.PagesPluginCapabilityBase` and implement `get_name() -> str`, `get_ui() -> str`, and `on_message(self, data)`.
+- Frontend communicates via injected `window.orca.postMessage(obj)` and `window.orca.onMessage(cb)`; Python pushes responses via `self.post_message(data)`.
+- `get_ui()` is lazily invoked on first tab open and re-initialized on reload; keep authoritative state in Python.
+
+## 8. Printer Agent Capability (`orca.printer_agent.PrinterAgentBase`)
+
+Verified against OrcaSlicer `main` (`PrinterAgentPluginCapability.cpp`, `IPrinterAgent.hpp`, `MoonrakerPrinterAgent.cpp`):
+- **Activation**: Requires `Preferences -> Developer -> Experimental Features -> Use printer agents instead of print hosts` (`use_printer_agents`, default OFF) and selecting the agent under `Printer settings -> Basic information -> Advanced -> Printer Agent`.
+- **Core types**: `AgentInfo(id, name, version, description)`, `PrintParams`, `PrinterConnectionParams`, `DetectResult`, `CameraStreamMode` (`None_`, `HTTP`, `HTTPS`, `HTTP_SNAPSHOT`, `RTSP`), `FilamentSyncMode` (`None_`, `Subscription`, `Pull`).
+- **Return codes**: `0` (`BAMBU_NETWORK_SUCCESS`) on success; negative codes on error (`-1` invalid handle, `-14` file not exist, `-18` canceled, `-4020` local print upload failed, `-5010` SD upload failed).
+- **Threading**: `start_discovery()`, `connect_printer()`, `disconnect_printer()` (3 s deadline during app shutdown) run on the UI thread; `start_local_print()` / `start_send_gcode_to_sdcard()` run on background job threads.
+- **Status push gotcha**: `on_local_message_fn(dev_id, json_str)` `push_status` payloads must set **both** `print.sdcard = true` and `print.home_flag` bits 8-9 (`1 << 8`), or OrcaSlicer's send dialog blocks thinking no storage is present.
+- **3MF bundles**: `params.dst_file` / `params.filename` may point to a `.3mf` ZIP archive containing `Metadata/plate_<plate_index>.gcode`.

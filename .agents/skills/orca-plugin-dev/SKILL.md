@@ -25,14 +25,18 @@ official OrcaSlicer plugin architecture and this repository's conventions.
 3. **Respect the `lib/` bundle layout**:
    Only `plugin.py` (and `orca-plugin.json`) should sit at the top level of
    the built plugin folder (`dist/flashforge_adv4_bridge/`). Place helper
-   modules (`server.py`, `bridge_controller.py`, `bridge_services.py`,
-   `flashforge_client.py`) under `lib/` in the bundle and configure `sys.path`
-   in `plugin.py` for both `lib/` (built) and repo root (dev/test).
+   modules (`server.py`, `printer_agent.py`, `bridge_controller.py`,
+   `bridge_services.py`, `flashforge_client.py`) under `lib/` in the bundle
+   and configure `sys.path` in `plugin.py` for both `lib/` (built) and repo
+   root (dev/test).
 4. **Never block the OrcaSlicer UI thread**:
-   `ScriptPluginCapabilityBase.execute()` runs on the main/UI thread. Offload
-   blocking I/O or servers to `threading.Thread` (as `BridgeServer` does) and
-   never import external GUI toolkits (PyQt, wxPython, Tkinter); use
-   `orca.host.ui` when native/HTML UI is needed.
+   `ScriptPluginCapabilityBase.execute()`, `PrinterAgentBase.start_discovery()`,
+   `connect_printer()`, and `disconnect_printer()` (3 s shutdown deadline) run
+   on the main/UI thread. Offload blocking I/O or servers to `threading.Thread`
+   (`daemon=True`, and `daemon_threads = True` / `block_on_close = False` on
+   `ThreadingHTTPServer`) and never import external GUI toolkits (PyQt,
+   wxPython, Tkinter); use `orca.pages.PagesPluginCapabilityBase` or
+   `orca.host.ui` for HTML UI.
 5. **Declare permissions upfront**:
    Call `orca.request_permissions(...)` inside `register_capabilities()` (guarded
    with `hasattr(orca, "request_permissions")`) for `fs_read`, `fs_readwrite`,
@@ -42,21 +46,22 @@ official OrcaSlicer plugin architecture and this repository's conventions.
 ## Development Workflow
 
 1. **Edit plugin / shared logic**:
-   - Entrypoint & capability registration: [plugin.py](../../../../orca_plugin/plugin.py)
+   - Entrypoint & capability registration (`Script`, `Pages`, `PrinterAgent`, Config UI): [plugin.py](../../../../orca_plugin/plugin.py)
    - Manifest: [orca-plugin.json](../../../../orca_plugin/orca-plugin.json)
-   - Stdlib HTTP server: [server.py](../../../../orca_plugin/server.py)
+   - Stdlib HTTP server (optional via `server.enabled`): [server.py](../../../../orca_plugin/server.py)
+   - Native `PrinterAgentBase` implementation: [printer_agent.py](../../../../orca_plugin/printer_agent.py)
    - Shared controller/services: [bridge_controller.py](../../../../bridge_controller.py), [bridge_services.py](../../../../bridge_services.py)
 2. **Update bundle script if files are added/renamed**:
    - Edit [build_orca_plugin.py](../../../../scripts/build_orca_plugin.py) so all new files/assets are copied into `dist/flashforge_adv4_bridge/`.
 3. **Build the plugin bundle**:
    ```bash
-   uv run python scripts/build_orca_plugin.py
+   .venv/bin/python scripts/build_orca_plugin.py
    ```
 4. **Run unit tests**:
    ```bash
-   uv run python -m unittest tests/test_plugin_server.py
+   .venv/bin/python -m unittest tests/test_plugin_server.py tests/test_plugin_pages.py tests/test_printer_agent.py
    ```
-   (Run the full test suite with `uv run python -m unittest discover -s tests` when shared modules change.)
+   (Run the full test suite with `.venv/bin/python -m unittest discover -s tests` when shared modules change.)
 5. **Deploy to OrcaSlicer (Windows)**:
    Copy `dist/flashforge_adv4_bridge/` to `%APPDATA%\OrcaSlicer\orca_plugins\flashforge_adv4_bridge\`.
 
