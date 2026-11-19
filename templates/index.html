@@ -550,6 +550,7 @@
               <span id="cam-dot" class="dot"></span>
               <span id="cam-status-text">確認中</span>
             </span>
+            <button type="button" id="camera-toggle-btn" class="btn-sm" onclick="toggleCameraStream()">カメラ OFF</button>
             <button type="button" class="btn-sm" onclick="captureSnapshot()">撮影</button>
             <button type="button" class="btn-sm" onclick="reconnectCamera()">再接続</button>
           </div>
@@ -557,7 +558,7 @@
         <div class="camera-box">
           <img id="camera-img" alt="Adventurer 4 Camera Stream" onerror="onCameraError()" onload="onCameraLoad()" />
           <div id="camera-fallback" class="camera-fallback">
-            <div>カメラ映像を取得できませんでした</div>
+            <div id="camera-fallback-msg">カメラ映像を取得できませんでした</div>
             <div style="font-size: 0.8rem;">URL: <code>{{ camera_url }}</code></div>
             <button type="button" onclick="reconnectCamera()">再試行</button>
           </div>
@@ -864,12 +865,63 @@
       return { request, cameraStreamUrl, snapshotUrl, loadSnapshotImage, isOrcaMode: hasOrca };
     })();
 
+    const CAMERA_ENABLED_STORAGE_KEY = "ff_bridge_camera_enabled";
+    let cameraEnabled = (() => {
+      try {
+        return localStorage.getItem(CAMERA_ENABLED_STORAGE_KEY) !== "false";
+      } catch (_) {
+        return true;
+      }
+    })();
+
+    function updateCameraToggleButton() {
+      const btn = document.getElementById("camera-toggle-btn");
+      if (!btn) return;
+      btn.textContent = cameraEnabled ? "カメラ OFF" : "カメラ ON";
+    }
+
+    function setCameraEnabled(enabled) {
+      cameraEnabled = Boolean(enabled);
+      try {
+        localStorage.setItem(CAMERA_ENABLED_STORAGE_KEY, cameraEnabled ? "true" : "false");
+      } catch (_) {}
+      updateCameraToggleButton();
+
+      if (cameraRetryTimer) {
+        clearTimeout(cameraRetryTimer);
+        cameraRetryTimer = null;
+      }
+
+      const img = document.getElementById("camera-img");
+      const fallback = document.getElementById("camera-fallback");
+      const fallbackMsg = document.getElementById("camera-fallback-msg");
+      if (!cameraEnabled) {
+        img.style.display = "none";
+        img.removeAttribute("src");
+        if (fallbackMsg) fallbackMsg.textContent = "カメラ表示を停止しています";
+        fallback.style.display = "flex";
+      } else {
+        if (fallbackMsg) fallbackMsg.textContent = "カメラ映像を取得できませんでした";
+        fallback.style.display = "none";
+        img.style.display = "block";
+        img.src = BridgeTransport.cameraStreamUrl();
+      }
+    }
+
+    function toggleCameraStream() {
+      setCameraEnabled(!cameraEnabled);
+    }
+
     function onCameraError() {
+      if (!cameraEnabled) return;
+      const fallbackMsg = document.getElementById("camera-fallback-msg");
+      if (fallbackMsg) fallbackMsg.textContent = "カメラ映像を取得できませんでした";
       document.getElementById("camera-img").style.display = "none";
       document.getElementById("camera-fallback").style.display = "flex";
       if (!cameraRetryTimer) {
         cameraRetryTimer = setTimeout(() => {
           cameraRetryTimer = null;
+          if (!cameraEnabled) return;
           const img = document.getElementById("camera-img");
           img.style.display = "block";
           document.getElementById("camera-fallback").style.display = "none";
@@ -879,6 +931,7 @@
     }
 
     function onCameraLoad() {
+      if (!cameraEnabled) return;
       if (cameraRetryTimer) {
         clearTimeout(cameraRetryTimer);
         cameraRetryTimer = null;
@@ -892,10 +945,17 @@
         clearTimeout(cameraRetryTimer);
         cameraRetryTimer = null;
       }
+      cameraEnabled = true;
+      try {
+        localStorage.setItem(CAMERA_ENABLED_STORAGE_KEY, "true");
+      } catch (_) {}
+      updateCameraToggleButton();
       try {
         await BridgeTransport.request("POST", "/api/camera/reconnect");
       } catch (_) {}
       const img = document.getElementById("camera-img");
+      const fallbackMsg = document.getElementById("camera-fallback-msg");
+      if (fallbackMsg) fallbackMsg.textContent = "カメラ映像を取得できませんでした";
       img.style.display = "block";
       document.getElementById("camera-fallback").style.display = "none";
       img.src = BridgeTransport.cameraStreamUrl();
@@ -1443,10 +1503,7 @@
       if (apiBtn) apiBtn.style.display = "none";
       if (apiBar) apiBar.style.display = "none";
     }
-    const cameraImgEl = document.getElementById("camera-img");
-    if (cameraImgEl) {
-      cameraImgEl.src = BridgeTransport.cameraStreamUrl();
-    }
+    setCameraEnabled(cameraEnabled);
     updateApiKeyButton();
     fetchTempHistory();
     fetchSnapshots(true);
