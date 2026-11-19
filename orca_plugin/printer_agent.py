@@ -153,6 +153,15 @@ def build_push_status_payload(status: dict[str, Any]) -> dict[str, Any]:
         print_obj["subtask_name"] = str(current_file)
         print_obj["gcode_file"] = str(current_file)
 
+    led_state = status.get("led")
+    if led_state is not None:
+        print_obj["lights_report"] = [
+            {
+                "node": "chamber_light",
+                "mode": "on" if bool(led_state) else "off",
+            }
+        ]
+
     return {
         "print": print_obj,
         "t_utc": int(time.time() * 1000),
@@ -476,6 +485,31 @@ class PrinterAgentMixin:
                     }
                 },
             )
+            return BAMBU_NETWORK_SUCCESS
+
+        system_obj = req.get("system")
+        if isinstance(system_obj, dict) and system_obj.get("command") == "ledctrl":
+            mode = str(system_obj.get("led_mode") or "").strip().lower()
+            if mode in {"on", "off"}:
+                on = mode == "on"
+                code, _ = ctrl.set_led(on)
+                if code == 200:
+                    self._emit_local_message(
+                        dev_id,
+                        {
+                            "print": {
+                                "command": "push_status",
+                                "lights_report": [
+                                    {
+                                        "node": str(system_obj.get("led_node") or "chamber_light"),
+                                        "mode": mode,
+                                    }
+                                ],
+                            }
+                        },
+                    )
+                    return BAMBU_NETWORK_SUCCESS
+                return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
             return BAMBU_NETWORK_SUCCESS
 
         print_obj = req.get("print")

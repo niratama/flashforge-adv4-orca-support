@@ -87,6 +87,7 @@ class TestPrinterAgent(unittest.TestCase):
                 "connected": True,
                 "machine_status": "BUILDING_FROM_SD",
                 "current_file": "part.gx",
+                "led": True,
                 "temperatures": {
                     "nozzle": {"actual": 205.5, "target": 210.0},
                     "bed": {"actual": 59.0, "target": 60.0},
@@ -105,6 +106,7 @@ class TestPrinterAgent(unittest.TestCase):
         self.assertEqual(p["bed_target_temper"], 60.0)
         self.assertEqual(p["mc_percent"], 67)
         self.assertEqual(p["subtask_name"], "part.gx")
+        self.assertEqual(p["lights_report"], [{"node": "chamber_light", "mode": "on"}])
 
     def test_discovery_connect_status_push_and_disconnect(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -217,6 +219,23 @@ class TestPrinterAgent(unittest.TestCase):
             mock_client.set_print_speed.assert_called_with(110)
             self.assertEqual(acks[-1]["print"]["sequence_id"], "42")
             self.assertEqual(acks[-1]["print"]["result"], "success")
+
+            led_req = {
+                "system": {
+                    "command": "ledctrl",
+                    "led_node": "chamber_light",
+                    "led_mode": "on",
+                }
+            }
+            self.assertEqual(
+                agent.send_message_to_printer("dev", json.dumps(led_req), 0, 0),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.set_led.assert_called_with(True)
+            self.assertEqual(
+                acks[-1]["print"]["lights_report"],
+                [{"node": "chamber_light", "mode": "on"}],
+            )
 
     def test_start_local_print_and_cancel(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
