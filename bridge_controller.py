@@ -22,6 +22,7 @@ from flashforge_client import (
     DEFAULT_METADATA_SCAN_BYTES,
     FlashforgeClient,
     FlashforgeError,
+    FlashforgeTransferCancelledError,
     extract_job_metadata,
 )
 
@@ -370,6 +371,8 @@ class BridgeController:
         filename: str,
         file_bytes: bytes,
         should_print: bool = False,
+        progress_callback: Callable[[int, int], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> tuple[int, dict[str, Any]]:
         if not filename:
             return 400, {"error": "No file provided in 'file' field."}
@@ -380,12 +383,20 @@ class BridgeController:
             len(file_bytes),
             should_print,
         )
+        send_kwargs: dict[str, Any] = {
+            "filename": filename,
+            "data": file_bytes,
+            "start_print": should_print,
+        }
+        if progress_callback is not None:
+            send_kwargs["progress_callback"] = progress_callback
+        if cancel_check is not None:
+            send_kwargs["cancel_check"] = cancel_check
+
         try:
-            saved_name = self.client.send_file(
-                filename=filename,
-                data=file_bytes,
-                start_print=should_print,
-            )
+            saved_name = self.client.send_file(**send_kwargs)
+        except FlashforgeTransferCancelledError:
+            raise
         except FlashforgeError as exc:
             logger.error("Upload/print failed for %s: %s", filename, exc)
             return 502, {"error": str(exc)}

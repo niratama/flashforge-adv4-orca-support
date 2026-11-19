@@ -578,6 +578,10 @@ class FlashforgeError(Exception):
     """Raised when communication with the Flashforge printer fails."""
 
 
+class FlashforgeTransferCancelledError(FlashforgeError):
+    """Raised when an in-progress file transfer is cancelled by the caller."""
+
+
 class FlashforgeClient:
     """Thread-safe TCP client for Flashforge Adventurer 4."""
 
@@ -931,6 +935,8 @@ class FlashforgeClient:
         data: bytes,
         start_print: bool = False,
         transfer_mode: str | None = None,
+        progress_callback: Any | None = None,
+        cancel_check: Any | None = None,
     ) -> str:
         """Transfer G-code/GX bytes via ~M28 ... ~M29 and optionally start with ~M23."""
         safe_name = self.sanitize_filename(filename)
@@ -943,6 +949,8 @@ class FlashforgeClient:
         mode = (transfer_mode or os.getenv("FLASHFORGE_TRANSFER_MODE", "raw")).strip().lower()
 
         with self._lock:
+            if cancel_check is not None and cancel_check():
+                raise FlashforgeTransferCancelledError("File transfer cancelled before start")
             # Reuse the active control session (closing without ~M602 causes 'Control failed.').
             self._ensure_connected()
 
@@ -963,7 +971,10 @@ class FlashforgeClient:
                 m28_resp = self._read_until_ok(timeout=self.transfer_timeout)
                 logger.debug("<- %r", m28_resp.strip())
 
+                bytes_sent = 0
                 for counter, offset in enumerate(range(0, file_size, self.CHUNK_SIZE)):
+                    if cancel_check is not None and cancel_check():
+                        raise FlashforgeTransferCancelledError("File transfer cancelled")
                     chunk = data[offset : offset + self.CHUNK_SIZE]
                     if mode == "packet":
                         payload = self._build_transfer_packet(counter, chunk)
@@ -974,6 +985,11 @@ class FlashforgeClient:
                     else:
                         payload = chunk
                     self._send_raw(payload)
+                    bytes_sent += len(chunk)
+                    if progress_callback is not None and (
+                        counter == 0 or (counter + 1) % 8 == 0 or bytes_sent >= file_size
+                    ):
+                        progress_callback(bytes_sent, file_size)
                     time.sleep(0.003)
                     if counter == 0 or (counter + 1) % 100 == 0 or (counter + 1) == total_chunks:
                         logger.debug(
@@ -991,6 +1007,8 @@ class FlashforgeClient:
                 logger.debug("<- %r", m29_resp.strip())
 
                 if start_print:
+                    if cancel_check is not None and cancel_check():
+                        raise FlashforgeTransferCancelledError("Print start cancelled")
                     m23_cmd = f"~M23 {remote_path}"
                     logger.debug("-> %s", m23_cmd)
                     self._send_raw(f"{m23_cmd}\r\n")
