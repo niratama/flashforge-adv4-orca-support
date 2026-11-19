@@ -6,6 +6,7 @@
   <title>Flashforge Adventurer 4 - OrcaSlicer Bridge</title>
   <style>
     :root {
+      color-scheme: dark;
       --bg: #121417;
       --panel: #1c2026;
       --border: #2c323b;
@@ -20,12 +21,17 @@
 
     * { box-sizing: border-box; }
 
-    body {
-      margin: 0;
-      padding: 20px;
+    html,
+    body.ff-bridge-body {
+      margin: 0 !important;
+      padding: 0;
+      background: var(--bg) !important;
+      color: var(--text) !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif;
-      background: var(--bg);
-      color: var(--text);
+    }
+
+    body.ff-bridge-body {
+      padding: 20px !important;
     }
 
     .container {
@@ -257,11 +263,11 @@
       gap: 10px;
     }
 
-    button {
+    body.ff-bridge-body button {
       appearance: none;
-      border: 1px solid var(--border);
-      background: #242932;
-      color: var(--text);
+      border: 1px solid var(--border) !important;
+      background: #242932 !important;
+      color: var(--text) !important;
       padding: 10px 14px;
       border-radius: 8px;
       font-size: 0.9rem;
@@ -270,15 +276,15 @@
       transition: background 0.15s ease, border-color 0.15s ease;
     }
 
-    button:hover { background: #2d333e; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    body.ff-bridge-body button:hover { background: #2d333e !important; }
+    body.ff-bridge-body button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    button.primary:hover { background: var(--accent-hover); }
+    body.ff-bridge-body button.primary { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+    body.ff-bridge-body button.primary:hover { background: var(--accent-hover) !important; }
 
-    button.warn { border-color: var(--warn); color: var(--warn); }
-    button.danger { border-color: var(--danger); color: var(--danger); }
-    button.danger:hover { background: rgba(248, 81, 73, 0.14); }
+    body.ff-bridge-body button.warn { background: #242932 !important; border-color: var(--warn) !important; color: var(--warn) !important; }
+    body.ff-bridge-body button.danger { background: #242932 !important; border-color: var(--danger) !important; color: var(--danger) !important; }
+    body.ff-bridge-body button.danger:hover { background: rgba(248, 81, 73, 0.14) !important; }
 
     .status-msg {
       margin-top: 12px;
@@ -309,20 +315,20 @@
       color: var(--muted);
     }
 
-    .tune-input {
+    body.ff-bridge-body .tune-input {
       width: 100%;
-      background: #14171c;
-      color: var(--text);
-      border: 1px solid var(--border);
+      background: #14171c !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
       border-radius: 6px;
       padding: 6px 8px;
       font-size: 0.85rem;
       text-align: right;
     }
 
-    .btn-sm {
-      padding: 4px 10px;
-      font-size: 0.8rem;
+    body.ff-bridge-body button.btn-sm {
+      padding: 4px 10px !important;
+      font-size: 0.8rem !important;
     }
 
     .header-actions {
@@ -398,10 +404,10 @@
       border-top-style: dashed;
     }
 
-    select.range-select {
-      background: #242932;
-      color: var(--text);
-      border: 1px solid var(--border);
+    body.ff-bridge-body select.range-select {
+      background: #242932 !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
       border-radius: 6px;
       padding: 3px 8px;
       font-size: 0.8rem;
@@ -459,20 +465,20 @@
       padding-bottom: 4px;
     }
 
-    .thumb-item {
+    body.ff-bridge-body button.thumb-item {
       flex: 0 0 auto;
       width: 72px;
       height: 54px;
       border-radius: 5px;
       overflow: hidden;
-      border: 2px solid transparent;
-      background: #0b0d10;
+      border: 2px solid transparent !important;
+      background: #0b0d10 !important;
       cursor: pointer;
-      padding: 0;
+      padding: 0 !important;
     }
 
-    .thumb-item.active {
-      border-color: var(--accent);
+    body.ff-bridge-body button.thumb-item.active {
+      border-color: var(--accent) !important;
     }
 
     .thumb-item img {
@@ -511,7 +517,7 @@
     }
   </style>
 </head>
-<body>
+<body class="ff-bridge-body">
   <div class="container">
     <header>
       <div class="title-group">
