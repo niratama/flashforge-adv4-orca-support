@@ -332,13 +332,15 @@ class BridgeServer:
         client: FlashforgeClient | None = None,
         template_path: Path | None = None,
         start_background: bool | None = None,
+        controller: BridgeController | None = None,
     ) -> None:
-        self.config = config or load_config()
+        self.config = config or (controller.config if controller is not None else load_config())
         server_cfg = self.config["server"]
 
         self.host: str = server_cfg.get("host", "127.0.0.1")
         self.port: int = int(server_cfg.get("port", 5000))
-        self.controller = BridgeController(
+        self._owns_controller = controller is None
+        self.controller = controller or BridgeController(
             config=self.config,
             base_dir=PLUGIN_ROOT,
             client=client,
@@ -374,13 +376,15 @@ class BridgeServer:
             daemon=True,
         )
         self._thread.start()
-        self.controller.start()
+        if self._owns_controller:
+            self.controller.start()
         logger.info("BridgeServer listening on http://%s:%d", self.host, self.port)
         return self.port
 
     def stop(self) -> None:
         """Shut down the HTTP server and release the printer control session (~M602)."""
-        self.controller.stop()
+        if self._owns_controller:
+            self.controller.stop()
         if self._httpd is not None:
             try:
                 self._httpd.shutdown()

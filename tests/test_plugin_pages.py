@@ -33,7 +33,7 @@ class TestPluginPagesCapability(unittest.TestCase):
             http_base_url="http://127.0.0.1:5123",
         )
         self.assertIn('const HTTP_BASE_URL = "http://127.0.0.1:5123";', rendered)
-        self.assertIn("BridgeTransport.snapshotUrl", rendered)
+        self.assertIn("BridgeTransport.loadSnapshotImage", rendered)
         self.assertNotIn('<img id="camera-img" src="/api/camera/stream"', rendered)
 
     def test_pages_mixin_get_ui_and_on_message_with_mock_bridge(self) -> None:
@@ -74,11 +74,33 @@ class TestPluginPagesCapability(unittest.TestCase):
 
     def test_pages_mixin_on_message_when_bridge_unavailable(self) -> None:
         cap = _FakePagesCapability()
-        cap._get_bridge = lambda: None  # type: ignore[method-assign]
+        cap._get_controller = lambda: None  # type: ignore[method-assign]
         cap.on_message({"id": 9, "action": "printer.status"})
         self.assertEqual(len(cap.posted), 1)
         self.assertFalse(cap.posted[0]["ok"])
         self.assertEqual(cap.posted[0]["status"], 503)
+
+    def test_start_bridge_respects_server_enabled_false(self) -> None:
+        prev_bridge = orca_plugin_mod._bridge_instance
+        prev_ctrl = orca_plugin_mod._controller_instance
+        prev_cfg = dict(orca_plugin_mod._cached_orca_config)
+        orca_plugin_mod._bridge_instance = None
+        orca_plugin_mod._controller_instance = None
+        orca_plugin_mod._cached_orca_config = {}
+        try:
+            bridge, info = orca_plugin_mod._start_bridge({"server": {"enabled": False}})
+            self.assertIsNone(bridge)
+            self.assertIn("disabled", info)
+            self.assertIsNotNone(orca_plugin_mod._controller_instance)
+
+            cap = _FakePagesCapability()
+            html = cap.get_ui()
+            self.assertIn('const HTTP_BASE_URL = "";', html)
+        finally:
+            orca_plugin_mod._stop_bridge()
+            orca_plugin_mod._bridge_instance = prev_bridge
+            orca_plugin_mod._controller_instance = prev_ctrl
+            orca_plugin_mod._cached_orca_config = prev_cfg
 
     def test_registers_pages_capability_when_orca_pages_is_present(self) -> None:
         registered: list[type] = []

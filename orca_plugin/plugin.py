@@ -29,7 +29,14 @@ else:
         if str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
 
-from server import BridgeServer, _resolve_asset, load_config, render_dashboard_html  # noqa: E402
+from bridge_controller import BridgeController  # noqa: E402
+from server import (  # noqa: E402
+    PLUGIN_ROOT,
+    BridgeServer,
+    _resolve_asset,
+    load_config,
+    render_dashboard_html,
+)
 
 try:
     import orca
@@ -38,6 +45,7 @@ except ImportError:  # pragma: no cover - allows importing/testing outside OrcaS
 
 logger = logging.getLogger(__name__)
 _bridge_lock = threading.Lock()
+_controller_instance: BridgeController | None = None
 _bridge_instance: BridgeServer | None = None
 _atexit_registered = False
 _cached_orca_config: dict[str, Any] = {}
@@ -305,6 +313,10 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
 
       <fieldset>
         <legend>ローカルブリッジサーバー (server)</legend>
+        <div class="checkbox-field">
+          <input id="server_enabled" type="checkbox" />
+          <label for="server_enabled">ローカル HTTP ブリッジを有効にする (enabled)</label>
+        </div>
         <div class="field-row">
           <div class="field">
             <label for="server_host">バインドホスト</label>
@@ -406,6 +418,7 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
     document.getElementById("printer_timeout").value = p.timeout ?? 5.0;
     document.getElementById("printer_transfer_timeout").value = p.transfer_timeout ?? 30.0;
 
+    document.getElementById("server_enabled").checked = s.enabled !== false;
     document.getElementById("server_host").value = s.host ?? "127.0.0.1";
     document.getElementById("server_port").value = s.port ?? 5000;
     document.getElementById("server_debug").checked = Boolean(s.debug);
@@ -454,6 +467,7 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
         camera_url: cameraUrl
       }},
       server: {{
+        enabled: document.getElementById("server_enabled").checked,
         host: serverHost,
         port: serverPort,
         debug: document.getElementById("server_debug").checked
@@ -521,17 +535,60 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
 """
 
 
+def _ensure_controller_locked(cfg: dict[str, Any]) -> BridgeController:
+    """Create or reuse the shared BridgeController under _bridge_lock."""
+    global _controller_instance, _atexit_registered
+    if _controller_instance is not None and _controller_instance.config == cfg:
+        return _controller_instance
+
+    if _controller_instance is not None:
+        try:
+            _controller_instance.stop()
+        except Exception as exc:
+            logger.warning("BridgeController restart stop failed: %s", exc)
+        _controller_instance = None
+
+    controller = BridgeController(config=cfg, base_dir=PLUGIN_ROOT)
+    controller.start()
+    _controller_instance = controller
+    if not _atexit_registered:
+        atexit.register(_stop_bridge)
+        _atexit_registered = True
+    return controller
+
+
+def _ensure_controller(orca_config: dict[str, Any] | None = None) -> BridgeController:
+    """Return the active shared BridgeController, starting it if needed."""
+    global _cached_orca_config
+    with _bridge_lock:
+        if orca_config:
+            _cached_orca_config = deep_merge_dicts(_cached_orca_config, orca_config)
+        cfg = resolve_effective_config(_cached_orca_config)
+        return _ensure_controller_locked(cfg)
+
+
 def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServer | None, str]:
-    """Start the local bridge server once and register shutdown cleanup."""
+    """Start the shared controller and (if server.enabled) the local HTTP bridge server."""
     global _bridge_instance, _atexit_registered, _cached_orca_config
     with _bridge_lock:
         if orca_config:
             _cached_orca_config = deep_merge_dicts(_cached_orca_config, orca_config)
 
         cfg = resolve_effective_config(_cached_orca_config)
+        server_enabled = bool(cfg.get("server", {}).get("enabled", True))
+        controller = _ensure_controller_locked(cfg)
+
+        if not server_enabled:
+            if _bridge_instance is not None:
+                try:
+                    _bridge_instance.stop()
+                except Exception as exc:
+                    logger.warning("BridgeServer stop failed while disabling HTTP: %s", exc)
+                _bridge_instance = None
+            return None, "HTTP bridge disabled (native mode)"
 
         if _bridge_instance is not None and _bridge_instance.is_running:
-            if _bridge_instance.config == cfg:
+            if _bridge_instance.config == cfg and _bridge_instance.controller is controller:
                 return _bridge_instance, f"http://localhost:{_bridge_instance.port}"
             try:
                 _bridge_instance.stop()
@@ -539,7 +596,7 @@ def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServ
                 logger.warning("BridgeServer restart stop failed: %s", exc)
             _bridge_instance = None
 
-        bridge = BridgeServer(config=cfg)
+        bridge = BridgeServer(config=cfg, controller=controller)
         try:
             port = bridge.start()
         except OSError as exc:
@@ -554,8 +611,15 @@ def _start_bridge(orca_config: dict[str, Any] | None = None) -> tuple[BridgeServ
 
 
 def _stop_bridge() -> None:
-    global _bridge_instance
+    global _bridge_instance, _controller_instance
     with _bridge_lock:
+        if _controller_instance is not None:
+            try:
+                _controller_instance.stop()
+            except Exception as exc:
+                logger.warning("BridgeController stop failed: %s", exc)
+            finally:
+                _controller_instance = None
         if _bridge_instance is not None:
             try:
                 _bridge_instance.stop()
@@ -577,12 +641,21 @@ class PagesBridgeMixin:
         bridge, _ = _start_bridge(_extract_orca_config(self) or None)
         return bridge
 
-    def get_ui(self) -> str:
+    def _get_controller(self) -> BridgeController | None:
         bridge = self._get_bridge()
         if bridge is not None:
-            camera_url = bridge.controller.camera_url
-            printer_ip = bridge.controller.printer_ip
-            http_base_url = f"http://127.0.0.1:{bridge.port}"
+            return bridge.controller
+        if _controller_instance is not None:
+            return _controller_instance
+        return None
+
+    def get_ui(self) -> str:
+        bridge = self._get_bridge()
+        controller = bridge.controller if bridge is not None else _controller_instance
+        if controller is not None:
+            camera_url = controller.camera_url
+            printer_ip = controller.printer_ip
+            http_base_url = f"http://127.0.0.1:{bridge.port}" if bridge is not None else ""
         else:
             cfg = resolve_effective_config(_extract_orca_config(self) or None)
             printer_cfg = cfg.get("printer", {})
@@ -602,19 +675,19 @@ class PagesBridgeMixin:
     def on_message(self, data: Any) -> None:
         if not isinstance(data, dict):
             return
-        bridge = self._get_bridge()
-        if bridge is None:
+        controller = self._get_controller()
+        if controller is None:
             self.post_message(  # type: ignore[attr-defined]
                 {
                     "id": data.get("id"),
                     "action": str(data.get("action") or data.get("type") or ""),
                     "ok": False,
                     "status": 503,
-                    "data": {"ok": False, "error": "Bridge server is not running"},
+                    "data": {"ok": False, "error": "Bridge controller is not running"},
                 }
             )
             return
-        response = bridge.controller.handle_message(data)
+        response = controller.handle_message(data)
         self.post_message(response)  # type: ignore[attr-defined]
 
 
@@ -656,6 +729,11 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
         def execute(self):
             bridge, info = _start_bridge(_extract_orca_config(self))
             if bridge is None:
+                if _controller_instance is not None and "disabled" in info:
+                    printer_ip = _controller_instance.printer_ip
+                    return orca.ExecutionResult.success(
+                        f"{info} (printer: {printer_ip}:8899)"
+                    )
                 return orca.ExecutionResult.failure(orca.PluginResult.RecoverableError, info)
             printer_ip = bridge.config.get("printer", {}).get("ip", "unknown")
             return orca.ExecutionResult.success(

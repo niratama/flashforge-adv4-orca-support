@@ -131,6 +131,39 @@ class TestBridgeController(unittest.TestCase):
             self.assertFalse(resp_unknown["ok"])
             self.assertEqual(resp_unknown["status"], 404)
 
+    def test_snapshot_data_url_rpc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snap_dir = Path(tmpdir) / "snaps"
+            mock_client = MagicMock(spec=FlashforgeClient)
+            ctrl = BridgeController(
+                config=_sample_config(snap_dir),
+                base_dir=Path(tmpdir),
+                client=mock_client,
+                start_background=False,
+            )
+            saved = ctrl.snapshot_manager.save_frame(b"\xff\xd8\xff\xe0test\xff\xd9")
+
+            resp = ctrl.handle_message(
+                {
+                    "id": 11,
+                    "action": "camera.snapshots.get",
+                    "payload": {"filename": saved["filename"]},
+                }
+            )
+            self.assertTrue(resp["ok"])
+            self.assertEqual(resp["status"], 200)
+            self.assertTrue(resp["data"]["data_url"].startswith("data:image/jpeg;base64,"))
+
+            resp_missing = ctrl.handle_message(
+                {
+                    "id": 12,
+                    "action": "camera.snapshots.get",
+                    "payload": {"filename": "missing.jpg"},
+                }
+            )
+            self.assertFalse(resp_missing["ok"])
+            self.assertEqual(resp_missing["status"], 404)
+
     def test_job_metadata_attached_only_when_current_file_matches(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_client = MagicMock(spec=FlashforgeClient)

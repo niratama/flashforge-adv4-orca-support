@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hmac
 import json
 import logging
@@ -326,6 +327,22 @@ class BridgeController:
     def get_snapshot_path(self, filename: str) -> Path | None:
         return self.snapshot_manager.get_snapshot_path(filename)
 
+    def get_snapshot_data_url(self, filename: str) -> tuple[int, dict[str, Any]]:
+        if not filename:
+            return 400, {"ok": False, "error": "Snapshot filename is required"}
+        path = self.get_snapshot_path(filename)
+        if path is None:
+            return 404, {"ok": False, "error": "Snapshot not found"}
+        try:
+            b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        except OSError as exc:
+            return 500, {"ok": False, "error": str(exc)}
+        return 200, {
+            "ok": True,
+            "filename": path.name,
+            "data_url": f"data:image/jpeg;base64,{b64}",
+        }
+
     def get_temperature_history(self) -> dict[str, Any]:
         return self.temp_history.to_payload()
 
@@ -440,6 +457,8 @@ class BridgeController:
             return 200, self.list_snapshots()
         if action == "camera.snapshots.capture":
             return self.capture_snapshot()
+        if action == "camera.snapshots.get":
+            return self.get_snapshot_data_url(str(payload.get("filename") or ""))
         if action == "history.temperature":
             return 200, self.get_temperature_history()
         return 404, {"ok": False, "error": f"Unknown action: {action}"}

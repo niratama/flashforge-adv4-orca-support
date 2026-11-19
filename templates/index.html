@@ -748,6 +748,7 @@
         "POST:/api/camera/reconnect": "camera.reconnect",
         "GET:/api/camera/snapshots": "camera.snapshots.list",
         "POST:/api/camera/snapshots": "camera.snapshots.capture",
+        "GET:/api/camera/snapshots/data": "camera.snapshots.get",
         "GET:/api/history/temperature": "history.temperature",
       };
 
@@ -823,6 +824,8 @@
         return `${HTTP_BASE_URL}/api/camera/stream?_t=${Date.now()}`;
       }
 
+      const snapshotDataCache = new Map();
+
       function snapshotUrl(rawUrl) {
         if (!rawUrl) return "";
         if (HTTP_BASE_URL && rawUrl.startsWith("/")) {
@@ -831,7 +834,28 @@
         return rawUrl;
       }
 
-      return { request, cameraStreamUrl, snapshotUrl, isOrcaMode: hasOrca };
+      function loadSnapshotImage(imgEl, filename, rawUrl) {
+        if (!imgEl) return;
+        if (!hasOrca() || HTTP_BASE_URL) {
+          imgEl.src = snapshotUrl(rawUrl);
+          return;
+        }
+        if (!filename) return;
+        if (snapshotDataCache.has(filename)) {
+          imgEl.src = snapshotDataCache.get(filename);
+          return;
+        }
+        request("GET", "/api/camera/snapshots/data", { filename })
+          .then((res) => {
+            if (res.ok && res.data && res.data.data_url) {
+              snapshotDataCache.set(filename, res.data.data_url);
+              imgEl.src = res.data.data_url;
+            }
+          })
+          .catch(() => {});
+      }
+
+      return { request, cameraStreamUrl, snapshotUrl, loadSnapshotImage, isOrcaMode: hasOrca };
     })();
 
     function onCameraError() {
@@ -1360,7 +1384,7 @@
 
       const item = snapshotsChrono[selectedSnapIndex];
       const previewImg = document.createElement("img");
-      previewImg.src = BridgeTransport.snapshotUrl(item.url);
+      BridgeTransport.loadSnapshotImage(previewImg, item.filename, item.url);
       previewImg.alt = item.filename;
       preview.replaceChildren(previewImg);
       slider.disabled = false;
@@ -1385,7 +1409,7 @@
           renderSnapshotViewer();
         };
         const thumbImg = document.createElement("img");
-        thumbImg.src = BridgeTransport.snapshotUrl(s.url);
+        BridgeTransport.loadSnapshotImage(thumbImg, s.filename, s.url);
         thumbImg.alt = s.filename;
         thumbImg.loading = "lazy";
         btn.appendChild(thumbImg);
