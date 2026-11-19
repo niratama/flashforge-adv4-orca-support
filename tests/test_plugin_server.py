@@ -144,6 +144,7 @@ class TestPluginBridgeServer(unittest.TestCase):
             self.assertTrue((out / "plugin.py").is_file())
             self.assertTrue((out / "orca-plugin.json").is_file())
             self.assertTrue((out / "lib" / "server.py").is_file())
+            self.assertTrue((out / "lib" / "printer_agent.py").is_file())
             self.assertTrue((out / "lib" / "bridge_controller.py").is_file())
             self.assertTrue((out / "lib" / "bridge_services.py").is_file())
             self.assertTrue((out / "lib" / "flashforge_client.py").is_file())

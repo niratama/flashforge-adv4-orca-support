@@ -20,6 +20,7 @@ def build_plugin(output_dir: Path = DIST_DIR) -> Path:
         (PLUGIN_SRC / "plugin.py", output_dir / "plugin.py"),
         (PLUGIN_SRC / "orca-plugin.json", output_dir / "orca-plugin.json"),
         (PLUGIN_SRC / "server.py", output_dir / "lib" / "server.py"),
+        (PLUGIN_SRC / "printer_agent.py", output_dir / "lib" / "printer_agent.py"),
         (REPO_ROOT / "bridge_controller.py", output_dir / "lib" / "bridge_controller.py"),
         (REPO_ROOT / "bridge_services.py", output_dir / "lib" / "bridge_services.py"),
         (REPO_ROOT / "flashforge_client.py", output_dir / "lib" / "flashforge_client.py"),

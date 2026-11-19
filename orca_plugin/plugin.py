@@ -30,6 +30,7 @@ else:
             sys.path.insert(0, str(candidate))
 
 from bridge_controller import BridgeController  # noqa: E402
+from printer_agent import PrinterAgentMixin  # noqa: E402
 from server import (  # noqa: E402
     PLUGIN_ROOT,
     BridgeServer,
@@ -691,10 +692,21 @@ class PagesBridgeMixin:
         self.post_message(response)  # type: ignore[attr-defined]
 
 
+def _resolve_camera_url_for_agent() -> str:
+    if _bridge_instance is not None and _bridge_instance.is_running:
+        return f"http://127.0.0.1:{_bridge_instance.port}/api/camera/stream"
+    if _controller_instance is not None:
+        return _controller_instance.camera_url
+    return ""
+
+
 if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
 
     _HAS_ORCA_PAGES = hasattr(orca, "pages") and hasattr(
         orca.pages, "PagesPluginCapabilityBase"
+    )
+    _HAS_ORCA_PRINTER_AGENT = hasattr(orca, "printer_agent") and hasattr(
+        orca.printer_agent, "PrinterAgentBase"
     )
 
     if _HAS_ORCA_PAGES:
@@ -703,6 +715,22 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
             PagesBridgeMixin, orca.pages.PagesPluginCapabilityBase
         ):
             """Native OrcaSlicer tab exposing the Adventurer 4 dashboard via window.orca."""
+
+    if _HAS_ORCA_PRINTER_AGENT:
+
+        class FlashforgePrinterAgent(
+            PrinterAgentMixin, orca.printer_agent.PrinterAgentBase
+        ):
+            """Native OrcaSlicer PrinterAgentBase capability for Flashforge Adventurer 4."""
+
+            def __init__(self) -> None:
+                orca.printer_agent.PrinterAgentBase.__init__(self)
+                PrinterAgentMixin.__init__(
+                    self,
+                    controller_provider=_ensure_controller,
+                    camera_url_provider=_resolve_camera_url_for_agent,
+                    orca_pa_module=orca.printer_agent,
+                )
 
     class FlashforgeBridgeCapability(orca.script.ScriptPluginCapabilityBase):
         """Starts the Adventurer 4 local bridge when loaded by OrcaSlicer."""
@@ -787,6 +815,8 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
             orca.register_capability(FlashforgeBridgeCapability)
             if _HAS_ORCA_PAGES:
                 orca.register_capability(FlashforgePagesCapability)
+            if _HAS_ORCA_PRINTER_AGENT:
+                orca.register_capability(FlashforgePrinterAgent)
             _, info = _start_bridge(orca_cfg)
             logger.info("Flashforge Adventurer 4 Bridge registered: %s", info)
 
