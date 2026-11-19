@@ -91,4 +91,5 @@ OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabi
 - [x] **Step 2-1**: 共有ランタイム（`BridgeController`）を `BridgeServer` から分離し、`server.enabled`（デフォルト `true`）でローカル HTTP サーバーをオプション化＋HTTP レス `Pages` 向けスナップショット取得 RPC（`camera.snapshots.get`）を追加する
 - [x] **Step 2-2**: `orca_plugin/printer_agent.py`（`PrinterAgentMixin` + `FlashforgePrinterAgent`）および `FlashforgeClient.send_file()` の進捗・キャンセルコールバック対応、`.3mf` 内 G-code 抽出を実装する
 - [x] **Step 2-3**: [orca_plugin/plugin.py](./orca_plugin/plugin.py) への `FlashforgePrinterAgent` 登録、[scripts/build_orca_plugin.py](./scripts/build_orca_plugin.py) 同梱、単体テスト（`tests/test_printer_agent.py`）を追加する
-- [ ] **Step 2-4**: Windows 版 OrcaSlicer 2.5.0+ 実機で `use_printer_agents` 有効時の `Print plate`・Device タブ監視・制御・`server.enabled = false`（完全 HTTP レス）を検証する
+- [ ] **Step 2-4**: `server.enabled = false` 時でも `Device` タブ・`Adventurer 4` タブ・印刷中自動スナップショットが Adventurer 4 カメラ（`:8080`、同時接続 1 本制限）を競合せず共有できるよう、カメラリレー専用の動的空きポート（`127.0.0.1:0`）を軽量起動する仕組みを追加する
+- [ ] **Step 2-5**: Windows 版 OrcaSlicer 2.5.0+ 実機で `use_printer_agents` 有効時の `Print plate`・Device タブ監視・制御・カメラリレー共存を最終検証する
