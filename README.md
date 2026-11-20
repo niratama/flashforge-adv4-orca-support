@@ -24,8 +24,9 @@ flashforge-adv4-orca-support/
 ├── flashforge_client.py    # Flashforge TCP (8899) クライアント
 ├── orca_plugin/            # OrcaSlicer 2.5.0+ 用ゼロ依存プラグイン
 │   ├── orca-plugin.json
-│   ├── plugin.py
-│   └── server.py
+│   ├── plugin.py           # エントリポイント（Script / Pages / PrinterAgent / Config UI）
+│   ├── printer_agent.py    # OrcaSlicer PrinterAgentBase ネイティブ実装
+│   └── server.py           # 標準ライブラリ HTTP ブリッジ & 動的ポート CameraRelayServer
 ├── PROTOCOL.md             # Adventurer 4 TCP 通信仕様メモ
 ├── pyproject.toml          # プロジェクト定義 & 依存パッケージ (uv)
 ├── uv.lock                 # ロックファイル
@@ -33,13 +34,15 @@ flashforge-adv4-orca-support/
 │   ├── build_orca_plugin.py # dist/flashforge_adv4_bridge/ 生成スクリプト
 │   └── tcp_proxy.py        # TCP 8899 通信解析用プロキシ
 ├── templates/
-│   └── index.html          # Device タブ用ダッシュボード UI
+│   └── index.html          # Device (Web) / Adventurer 4 タブ用ダッシュボード UI
 └── tests/
     ├── test_app.py
     ├── test_bridge_controller.py
     ├── test_bridge_services.py
     ├── test_flashforge_client.py
-    └── test_plugin_server.py
+    ├── test_plugin_pages.py
+    ├── test_plugin_server.py
+    └── test_printer_agent.py
 ```
 
 ## 1. セットアップと起動
@@ -156,7 +159,7 @@ uv run python -m unittest discover -s tests -v
   - 自動保存または手動撮影された静止画を、スライダー・前後（`◀` / `▶`）ボタン・下部サムネイル一覧から切り替えて確認できます。
   - 最新の履歴を取り込みたい場合は **更新** ボタン（自動でも 15 秒ごとに更新）を使用してください。
 
-## 4. Windows 版 OrcaSlicer 2.5.0+ プラグインとして使う（パターン A）
+## 4. Windows 版 OrcaSlicer 2.5.0+ プラグインとして使う（パターン A / パターン B ネイティブ統合）
 
 外部ライブラリ不要（Python 標準ライブラリのみ）で動作するプラグインバンドルを生成できます。
 
@@ -170,14 +173,24 @@ uv run python scripts/build_orca_plugin.py
 %APPDATA%\OrcaSlicer\orca_plugins\flashforge_adv4_bridge\
 ```
 
-OrcaSlicer を起動するとバックグラウンドで `http://localhost:5000` が自動起動します（初回のみネットワーク通信等の権限確認ダイアログが表示されます）。
+OrcaSlicer を起動するとプラグインが自動読み込みされ、専用タブ **`Adventurer 4`**（`Pages`）とバックグラウンド機能が起動します（初回のみネットワーク通信・ファイルアクセス等の権限確認ダイアログが表示されます）。
 
-### プラグインの設定変更（GUI フォーム）
+### パターン B（ネイティブ統合: `PrinterAgent` + `Pages`）を有効にする手順
 
-OrcaSlicer の **プラグイン** 画面にある **「設定」** タブから、`printer`（IP・ポート・カメラ URL 等）・`server`・`camera`・`history` の各項目をフォーム形式で編集できます。
+OrcaSlicer 2.5.0+ のネイティブ **`Device` タブ** と **`Print plate` 直接送信** を使う場合は、以下を設定します：
 
-- **保存先と優先順位**: フォームで「保存」を押すと OrcaSlicer 本体のプラグイン設定（`%APPDATA%\OrcaSlicer\orca_plugins\config.json`）に保存され、プラグイン読み込み時にフォルダ内の `config.json` / `config-example.json` の値へ上書きマージされて適用されます。
-- **反映方法**: IP やポートを変更して「保存」した後は、プラグイン画面右上の **「再読込」**（または OrcaSlicer の再起動）を行うと変更が反映されます。
+1. `環境設定 (Preferences)` → `開発者 (Developer)` → `Experimental Features` で **「Use printer agents instead of print hosts」** を ON にする
+2. 準備タブ左上のプリンター横にある **編集アイコン（Printer settings）** を開き、上部の **詳細設定 (Advanced)** を ON にする
+3. **基本情報 (Basic information)** タブ下部の **Printer Agent** で **「Flashforge Adventurer 4」** を選択してプリセットを保存する
+4. （任意）プラグインの **「設定」** タブで **「ローカル HTTP ブリッジを有効にする (`server.enabled`)」を OFF** にすると、ポート `5000` の OctoPrint 互換サーバーを停止し、カメラ中継専用の動的空きポート（`127.0.0.1:0`）のみで **`Device` タブ**（造形開始・カメラ・温度・Lamp・速度・ファン・待機中 XY/Z 移動）と **`Adventurer 4` タブ**（温度推移グラフ・静止画履歴・ライブチューニング・カメラ ON/OFF）を併用できます
+
+### プラグインの設定変更（GUI フォーム）とデータ保存先
+
+OrcaSlicer の **プラグイン** 画面にある **「設定」** タブから、`printer`（IP・ポート・カメラ URL 等）・`server`（`enabled` / ホスト / ポート / デバッグ）・`camera`・`history` の各項目をフォーム形式で編集できます。
+
+- **設定の保存先と優先順位**: フォームで「保存」を押すと OrcaSlicer 本体のプラグイン設定（`%APPDATA%\OrcaSlicer\orca_plugins\config.json`）に保存され、プラグイン読み込み時にフォルダ内の `config.json` / `config-example.json` の値へ上書きマージされて適用されます。
+- **スナップショットの保存先**: プラグインとして配置した場合、`camera.snapshot_dir` が相対パス（既定: `snapshots`）のときは OrcaSlicer の公式データ領域 **`%APPDATA%\OrcaSlicer\orca_plugins\plugin_data\flashforge-adv4-bridge\snapshots\`** に保存されるため、プラグイン本体フォルダを上書き更新しても履歴が消えません（Config UI 上で実際の保存先パスをリアルタイム確認でき、絶対パス指定も可能です）。
+- **反映方法**: 設定を変更して「保存」した後は、プラグイン画面右上の **「再読込」**（または OrcaSlicer の再起動）を行うと変更が反映されます。
 
 ## 5. 開発・解析用 TCP プロキシ（`scripts/tcp_proxy.py`）
 
