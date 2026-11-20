@@ -131,12 +131,16 @@ def _safe_json_for_inline_script(value: Any) -> str:
     )
 
 
-def build_config_ui_html(default_config: dict[str, Any]) -> str:
+def build_config_ui_html(
+    default_config: dict[str, Any],
+    data_dir: Path | None = None,
+) -> str:
     """Build a self-contained HTML/JS form for OrcaSlicer's plugin Config tab."""
     sanitized_default = copy.deepcopy(default_config)
     if isinstance(sanitized_default.get("server"), dict):
         sanitized_default["server"].pop("api_key", None)
     default_json = _safe_json_for_inline_script(sanitized_default)
+    data_dir_json = _safe_json_for_inline_script(str(data_dir or resolve_plugin_data_dir(PLUGIN_DIR)))
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -373,6 +377,7 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
         <div class="field">
           <label for="camera_snapshot_dir">保存先ディレクトリ</label>
           <input id="camera_snapshot_dir" type="text" placeholder="snapshots" />
+          <div id="camera_snapshot_dir_hint" class="hint" style="margin: 4px 0 0; word-break: break-all;"></div>
         </div>
       </fieldset>
 
@@ -401,6 +406,19 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
 <script>
 (function() {{
   const DEFAULT_CONFIG = {default_json};
+  const PLUGIN_DATA_DIR = {data_dir_json};
+
+  function updateSnapshotDirHint() {{
+    const input = document.getElementById("camera_snapshot_dir");
+    const hint = document.getElementById("camera_snapshot_dir_hint");
+    if (!input || !hint) return;
+    const raw = (input.value || "").trim() || "snapshots";
+    const isAbs = /^([a-zA-Z]:[\\\\/]|\\\\\\\\|\\/)/.test(raw);
+    const sep = PLUGIN_DATA_DIR.includes("\\\\") ? "\\\\" : "/";
+    const base = PLUGIN_DATA_DIR.replace(/[\\\\/]+$/, "");
+    const resolved = isAbs ? raw : (base + sep + raw);
+    hint.textContent = "実際の保存先: " + resolved + "（相対パス時は plugin_data 配下、絶対パス指定可）";
+  }}
 
   function deepMerge(base, override) {{
     const result = Object.assign({{}}, base);
@@ -445,6 +463,7 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
     document.getElementById("camera_snapshot_interval_seconds").value = c.snapshot_interval_seconds ?? 60;
     document.getElementById("camera_snapshot_max_count").value = c.snapshot_max_count ?? 200;
     document.getElementById("camera_snapshot_dir").value = c.snapshot_dir ?? "snapshots";
+    updateSnapshotDirHint();
 
     document.getElementById("history_temperature_hours").value = h.temperature_hours ?? 4.0;
     document.getElementById("history_sample_interval_seconds").value = h.sample_interval_seconds ?? 5.0;
@@ -543,6 +562,8 @@ def build_config_ui_html(default_config: dict[str, Any]) -> str:
       setStatus(err.message, "err");
     }}
   }});
+
+  document.getElementById("camera_snapshot_dir").addEventListener("input", updateSnapshotDirHint);
 
   loadInitialConfig();
 }})();
