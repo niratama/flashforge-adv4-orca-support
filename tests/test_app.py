@@ -289,6 +289,22 @@ class TestAppEndpoints(unittest.TestCase):
         self.assertEqual(reprint.status_code, 200)
         self.assertTrue(reprint.get_json()["ok"])
 
+    def test_safety_controls_and_position_endpoints(self) -> None:
+        self.mock_client.get_position.return_value = {"x": 1.0, "y": 2.0, "z": 3.0, "e": 0.0}
+        self.mock_client.get_status.return_value = {"machine_status": "READY"}
+
+        pos = self.client.get("/api/printer/position")
+        self.assertEqual(pos.status_code, 200)
+        self.assertEqual(pos.get_json()["position"]["x"], 1.0)
+
+        off = self.client.post("/api/printer/steppers", json={"enabled": False})
+        self.assertEqual(off.status_code, 200)
+        self.mock_client.disable_steppers.assert_called_once()
+
+        estop = self.client.post("/api/printer/emergency_stop")
+        self.assertEqual(estop.status_code, 200)
+        self.mock_client.emergency_stop.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

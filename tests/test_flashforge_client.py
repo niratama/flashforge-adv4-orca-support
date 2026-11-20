@@ -91,6 +91,12 @@ class MockPrinterServer:
                             b"CurrentFile: benchy.gx\r\n"
                             b"ok\r\n"
                         )
+                    elif cmd == "~M114":
+                        conn.sendall(
+                            b"CMD M114 Received.\r\n"
+                            b"X:12.50 Y:-3.25 Z:45.00 A:1.20 B:0.00\r\n"
+                            b"ok\r\n"
+                        )
                     elif cmd == "~M661":
                         names = ["/data/benchy.gx", "/data/テスト造形.gx", "/data/cube.gcode"]
                         payload = struct.pack(">4sI", b"D\xaa\xaaD", len(names))
@@ -372,6 +378,20 @@ class TestFlashforgeClient(unittest.TestCase):
         for bad in ["", "   ", "../secret.gx", "/data/../secret.gx", "sub/dir.gx", "bad\r\n~M26"]:
             with self.assertRaises(ValueError):
                 FlashforgeClient.normalize_storage_path(bad)
+
+    def test_position_steppers_and_emergency_stop(self) -> None:
+        pos = self.client.get_position()
+        self.assertEqual(pos, {"x": 12.5, "y": -3.25, "z": 45.0, "e": 1.2})
+
+        full = self.client.get_full_status()
+        self.assertEqual(full["position"], {"x": 12.5, "y": -3.25, "z": 45.0, "e": 1.2})
+
+        self.client.disable_steppers()
+        self.client.enable_steppers()
+        self.client.emergency_stop()
+        self.assertIn("~M18", self.server.received_commands)
+        self.assertIn("~M17", self.server.received_commands)
+        self.assertIn("~M112", self.server.received_commands)
 
     def test_connection_error(self) -> None:
         bad_client = FlashforgeClient("127.0.0.1", port=1, timeout=0.5)

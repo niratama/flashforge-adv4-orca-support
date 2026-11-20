@@ -169,6 +169,35 @@ class TestPluginBridgeServer(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["filename"], "benchy.gx")
 
+    def test_safety_controls_and_position_endpoints(self) -> None:
+        self.mock_client.get_position.return_value = {"x": 1.0, "y": 2.0, "z": 3.0, "e": 0.0}
+        self.mock_client.get_status.return_value = {"machine_status": "READY"}
+
+        with urllib.request.urlopen(f"{self.base_url}/api/printer/position", timeout=3) as resp:
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(payload["position"]["z"], 3.0)
+
+        req_step = urllib.request.Request(
+            f"{self.base_url}/api/printer/steppers",
+            data=json.dumps({"enabled": False}).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req_step, timeout=3) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertFalse(json.loads(resp.read().decode("utf-8"))["steppers"])
+
+        req_estop = urllib.request.Request(
+            f"{self.base_url}/api/printer/emergency_stop",
+            data=b"",
+            method="POST",
+        )
+        with urllib.request.urlopen(req_estop, timeout=3) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertTrue(json.loads(resp.read().decode("utf-8"))["ok"])
+            self.mock_client.emergency_stop.assert_called_once()
+
     def test_build_plugin_creates_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out = build_plugin(Path(tmpdir) / "flashforge_adv4_bridge")

@@ -173,6 +173,11 @@ def _make_handler(
                 self._send_json(status, data)
                 return
 
+            if path == "/api/printer/position":
+                status, data = controller.get_printer_position()
+                self._send_json(status, data)
+                return
+
             if path == "/api/printer/files":
                 status, data = controller.list_printer_files()
                 self._send_json(status, data)
@@ -270,12 +275,16 @@ def _make_handler(
             if path == "/api/printer/cancel":
                 self._send_json(*controller.cancel_print())
                 return
+            if path == "/api/printer/emergency_stop":
+                self._send_json(*controller.emergency_stop())
+                return
 
             if path in {
                 "/api/printer/led",
                 "/api/printer/temperature/nozzle",
                 "/api/printer/temperature/bed",
                 "/api/printer/speed",
+                "/api/printer/steppers",
                 "/api/printer/files/print",
             }:
                 try:
@@ -292,6 +301,8 @@ def _make_handler(
                     self._send_json(*controller.set_bed_temp(payload.get("target")))
                 elif path == "/api/printer/speed":
                     self._send_json(*controller.set_print_speed(payload.get("percent")))
+                elif path == "/api/printer/steppers":
+                    self._send_json(*controller.set_steppers(bool(payload.get("enabled", False))))
                 else:
                     target = str(payload.get("filename") or payload.get("path") or "")
                     self._send_json(*controller.start_printer_file(target))

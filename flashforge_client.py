@@ -816,6 +816,21 @@ class FlashforgeClient:
                 info[key.strip()] = value.strip()
         return info
 
+    @staticmethod
+    def parse_position(raw: str) -> dict[str, float | None]:
+        """Parse ~M114 response (e.g. 'X:0.00 Y:0.00 Z:0.00 A:0.00 B:0.00')."""
+        def _axis(label: str) -> float | None:
+            match = re.search(rf"\b{label}:\s*(-?\d+(?:\.\d+)?)", raw)
+            return float(match.group(1)) if match else None
+
+        x = _axis("X")
+        y = _axis("Y")
+        z = _axis("Z")
+        e = _axis("E")
+        if e is None:
+            e = _axis("A")
+        return {"x": x, "y": y, "z": z, "e": e}
+
     # ------------------------------------------------------------------
     # High-level printer operations
     # ------------------------------------------------------------------
@@ -832,12 +847,19 @@ class FlashforgeClient:
     def get_status(self, quiet: bool = False) -> dict[str, Any]:
         return self.parse_status(self.send_command("~M119", quiet=quiet))
 
+    def get_position(self, quiet: bool = False) -> dict[str, float | None]:
+        return self.parse_position(self.send_command("~M114", quiet=quiet))
+
     def get_full_status(self) -> dict[str, Any]:
-        """Fetch temperature, progress, and machine status in one locked sequence."""
+        """Fetch temperature, progress, machine status, and position in one locked sequence."""
         with self._lock:
             temps = self.get_temperatures(quiet=True)
             progress = self.get_progress(quiet=True)
             status = self.get_status(quiet=True)
+            try:
+                position: dict[str, float | None] | None = self.get_position(quiet=True)
+            except FlashforgeError:
+                position = None
 
         return {
             "connected": True,
@@ -848,6 +870,7 @@ class FlashforgeClient:
             "current_file": status["current_file"],
             "temperatures": temps,
             "progress": progress,
+            "position": position,
         }
 
     def pause_print(self) -> str:
@@ -885,6 +908,18 @@ class FlashforgeClient:
     def set_fan(self, on: bool) -> str:
         """Turn the part cooling fan ON (~M106) or OFF (~M107)."""
         return self.send_command("~M106" if on else "~M107")
+
+    def enable_steppers(self) -> str:
+        """Enable stepper motors (~M17)."""
+        return self.send_command("~M17")
+
+    def disable_steppers(self) -> str:
+        """Disable stepper motors to allow manual movement (~M18)."""
+        return self.send_command("~M18")
+
+    def emergency_stop(self) -> str:
+        """Immediately halt all printer operations (~M112)."""
+        return self.send_command("~M112")
 
     def home_axes(self, axes: str = "") -> str:
         """Home all axes (~G28 X Y Z) or specified X/Y/Z axes."""

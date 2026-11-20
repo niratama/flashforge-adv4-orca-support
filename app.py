@@ -181,6 +181,25 @@ def create_app(
         status_code, data = controller.set_print_speed(payload.get("percent"))
         return jsonify(data), status_code
 
+    @app.get("/api/printer/position")
+    def printer_position():
+        status_code, data = controller.get_printer_position()
+        return jsonify(data), status_code
+
+    @app.post("/api/printer/steppers")
+    def printer_steppers():
+        payload, err = _parse_optional_json()
+        if err is not None:
+            return err
+        assert payload is not None
+        status_code, data = controller.set_steppers(bool(payload.get("enabled", False)))
+        return jsonify(data), status_code
+
+    @app.post("/api/printer/emergency_stop")
+    def printer_emergency_stop():
+        status_code, data = controller.emergency_stop()
+        return jsonify(data), status_code
+
     @app.get("/api/printer/files")
     def printer_files_list():
         status_code, data = controller.list_printer_files()

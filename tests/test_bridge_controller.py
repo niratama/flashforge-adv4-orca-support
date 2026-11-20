@@ -299,6 +299,47 @@ class TestBridgeController(unittest.TestCase):
             self.assertFalse(res_busy["ok"])
             self.assertEqual(res_busy["status"], 409)
 
+    def test_safety_controls_and_position_rpc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_client = MagicMock(spec=FlashforgeClient)
+            mock_client.get_status.return_value = {"machine_status": "READY"}
+            mock_client.get_position.return_value = {"x": 10.0, "y": 20.0, "z": 5.5, "e": 0.0}
+
+            ctrl = BridgeController(
+                config=_sample_config(Path(tmpdir) / "snaps"),
+                base_dir=Path(tmpdir),
+                client=mock_client,
+                start_background=False,
+            )
+
+            res_pos = ctrl.handle_message({"id": 20, "action": "printer.position"})
+            self.assertTrue(res_pos["ok"])
+            self.assertEqual(res_pos["data"]["position"]["z"], 5.5)
+
+            res_off = ctrl.handle_message(
+                {"id": 21, "action": "printer.steppers", "payload": {"enabled": False}}
+            )
+            self.assertTrue(res_off["ok"])
+            mock_client.disable_steppers.assert_called_once()
+
+            res_on = ctrl.handle_message(
+                {"id": 22, "action": "printer.steppers", "payload": {"enabled": True}}
+            )
+            self.assertTrue(res_on["ok"])
+            mock_client.enable_steppers.assert_called_once()
+
+            # Steppers blocked with 409 when printing, but emergency stop always allowed
+            mock_client.get_status.return_value = {"machine_status": "BUILDING_FROM_SD"}
+            res_blocked = ctrl.handle_message(
+                {"id": 23, "action": "printer.steppers", "payload": {"enabled": False}}
+            )
+            self.assertFalse(res_blocked["ok"])
+            self.assertEqual(res_blocked["status"], 409)
+
+            res_estop = ctrl.handle_message({"id": 24, "action": "printer.emergency_stop"})
+            self.assertTrue(res_estop["ok"])
+            mock_client.emergency_stop.assert_called_once()
+
     def test_gx_wrapping_and_filename_sanitization(self) -> None:
         gx = FlashforgeClient.wrap_gcode_as_gx(b"G28\nM104 S200\n")
         self.assertTrue(gx.startswith(b"xgcode 1.0\n\x00"))

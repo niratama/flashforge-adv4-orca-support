@@ -150,6 +150,7 @@ def build_disconnected_status(
             "bytes_total": 0,
             "percent": 0.0,
         },
+        "position": None,
     }
     if camera_status is not None:
         payload["camera"] = camera_status
@@ -339,6 +340,29 @@ class BridgeController:
             return 200, {"ok": True, "axis": axis.upper(), "delta": float(delta)}
         except (TypeError, ValueError) as exc:
             return 400, {"ok": False, "error": str(exc)}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+    def set_steppers(self, enabled: bool) -> tuple[int, dict[str, Any]]:
+        guard = self._ensure_ready_for_motion()
+        if guard is not None:
+            return guard
+        flag = bool(enabled)
+        try:
+            if flag:
+                self.client.enable_steppers()
+            else:
+                self.client.disable_steppers()
+            return 200, {"ok": True, "steppers": flag}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+    def emergency_stop(self) -> tuple[int, dict[str, Any]]:
+        return self._run_control("emergency_stop", self.client.emergency_stop)
+
+    def get_printer_position(self) -> tuple[int, dict[str, Any]]:
+        try:
+            return 200, {"ok": True, "position": self.client.get_position()}
         except FlashforgeError as exc:
             return 502, {"ok": False, "error": str(exc)}
 
@@ -570,6 +594,12 @@ class BridgeController:
             return self.set_bed_temp(payload.get("target"))
         if action == "printer.speed":
             return self.set_print_speed(payload.get("percent"))
+        if action == "printer.steppers":
+            return self.set_steppers(bool(payload.get("enabled", False)))
+        if action == "printer.emergency_stop":
+            return self.emergency_stop()
+        if action == "printer.position":
+            return self.get_printer_position()
         if action == "camera.reconnect":
             return 200, self.reconnect_camera()
         if action == "camera.snapshots.list":

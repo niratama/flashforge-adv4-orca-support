@@ -285,6 +285,24 @@
     body.ff-bridge-body button.warn { background: #242932 !important; border-color: var(--warn) !important; color: var(--warn) !important; }
     body.ff-bridge-body button.danger { background: #242932 !important; border-color: var(--danger) !important; color: var(--danger) !important; }
     body.ff-bridge-body button.danger:hover { background: rgba(248, 81, 73, 0.14) !important; }
+    body.ff-bridge-body button.estop { background: #b62324 !important; border-color: #f85149 !important; color: #ffffff !important; }
+    body.ff-bridge-body button.estop:hover { background: #da3633 !important; }
+
+    .safety-controls {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+
+    .pos-info {
+      margin-top: 4px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
 
     .status-msg {
       margin-top: 12px;
@@ -732,6 +750,7 @@
             <div id="progress-fill" class="progress-bar-fill"></div>
           </div>
           <div class="file-info" id="current-file">ファイル: なし</div>
+          <div class="pos-info" id="position-info">座標: X -- / Y -- / Z -- mm</div>
           <div class="job-meta-card" id="job-meta-card" style="display: none;">
             <img id="job-meta-thumb" class="job-meta-thumb" alt="ジョブサムネイル">
             <div class="job-meta-grid">
@@ -767,6 +786,12 @@
             <input id="speed-input" class="tune-input" type="number" min="10" max="200" step="5" value="100" />
             <button type="button" class="btn-sm" onclick="applyPrintSpeed()">設定</button>
           </div>
+        </div>
+
+        <div class="safety-controls">
+          <button type="button" class="btn-sm" id="stepper-disable-btn" onclick="setSteppers(false)" disabled>モーター解除</button>
+          <button type="button" class="btn-sm" id="stepper-enable-btn" onclick="setSteppers(true)" disabled>モーター励磁</button>
+          <button type="button" class="btn-sm estop" id="estop-btn" onclick="triggerEmergencyStop()">緊急停止</button>
         </div>
 
         <div id="action-msg" class="status-msg"></div>
@@ -928,6 +953,9 @@
         "POST:/api/printer/temperature/nozzle": "printer.temperature.nozzle",
         "POST:/api/printer/temperature/bed": "printer.temperature.bed",
         "POST:/api/printer/speed": "printer.speed",
+        "POST:/api/printer/steppers": "printer.steppers",
+        "POST:/api/printer/emergency_stop": "printer.emergency_stop",
+        "GET:/api/printer/position": "printer.position",
         "POST:/api/camera/reconnect": "camera.reconnect",
         "GET:/api/camera/snapshots": "camera.snapshots.list",
         "POST:/api/camera/snapshots": "camera.snapshots.capture",
@@ -1194,6 +1222,49 @@
       sendAction("/api/printer/cancel", "印刷中止を送信しました");
     }
 
+    function setSteppers(enabled) {
+      const msg = enabled ? "ステッパーモーターを励磁しました (~M17)" : "ステッパーモーターを解除しました (~M18)";
+      sendAction("/api/printer/steppers", msg, { enabled: Boolean(enabled) });
+    }
+
+    function triggerEmergencyStop() {
+      if (!confirm("緊急停止 (~M112) を実行しますか？\nすべての動作と加熱を即座に停止します。復帰にはプリンター本体の再起動が必要になる場合があります。")) {
+        return;
+      }
+      sendAction("/api/printer/emergency_stop", "緊急停止 (~M112) を送信しました");
+    }
+
+    function formatCoord(val) {
+      return val === null || val === undefined || Number.isNaN(Number(val)) ? "--" : Number(val).toFixed(2);
+    }
+
+    function updatePositionDisplay(pos) {
+      const el = document.getElementById("position-info");
+      if (!el) return;
+      if (!pos || (pos.x === null && pos.y === null && pos.z === null)) {
+        el.textContent = "座標: X -- / Y -- / Z -- mm";
+        return;
+      }
+      el.textContent = `座標: X ${formatCoord(pos.x)} / Y ${formatCoord(pos.y)} / Z ${formatCoord(pos.z)} mm`;
+    }
+
+    function updateSafetyButtons() {
+      const isReady = currentMachineStatus === "READY";
+      const disableBtn = document.getElementById("stepper-disable-btn");
+      const enableBtn = document.getElementById("stepper-enable-btn");
+      const hint = isReady
+        ? ""
+        : `待機中 (READY) のときのみ操作できます（現在: ${formatMachineStatus(currentMachineStatus)}）`;
+      if (disableBtn) {
+        disableBtn.disabled = !isReady;
+        disableBtn.title = hint || "ステッパーモーターを解除して手動移動可能にします (~M18)";
+      }
+      if (enableBtn) {
+        enableBtn.disabled = !isReady;
+        enableBtn.title = hint || "ステッパーモーターを励磁します (~M17)";
+      }
+    }
+
     function toggleLed() {
       const nextState = !currentLedState;
       sendAction("/api/printer/led", `LEDを${nextState ? "ON" : "OFF"}にしました`, { on: nextState });
@@ -1285,6 +1356,8 @@
         machineStatusEl.textContent = `状態: ${formatMachineStatus(rawStatus)}`;
         machineStatusEl.title = rawStatus;
         updateStoragePrintButton();
+        updateSafetyButtons();
+        updatePositionDisplay(data.position);
 
         const fileText = data.current_file ? `ファイル: ${data.current_file}` : "ファイル: なし";
         document.getElementById("current-file").textContent = fileText;
@@ -1302,6 +1375,8 @@
       } catch (err) {
         currentMachineStatus = "DISCONNECTED";
         updateStoragePrintButton();
+        updateSafetyButtons();
+        updatePositionDisplay(null);
         dot.className = "dot offline";
         connText.textContent = "サーバー通信エラー";
         updateCameraStatus(null);
