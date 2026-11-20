@@ -25,6 +25,7 @@ from printer_agent import (  # noqa: E402
     BAMBU_NETWORK_ERR_CANCELED,
     BAMBU_NETWORK_ERR_FILE_NOT_EXIST,
     BAMBU_NETWORK_SUCCESS,
+    ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE,
     PRINTING_STAGE_FINISHED,
     PRINTING_STAGE_UPLOAD,
     PrinterAgentMixin,
@@ -235,6 +236,70 @@ class TestPrinterAgent(unittest.TestCase):
             self.assertEqual(
                 acks[-1]["print"]["lights_report"],
                 [{"node": "chamber_light", "mode": "on"}],
+            )
+
+            # Speed meter (print_speed level 3 -> 124%)
+            speed_req = {"print": {"command": "print_speed", "param": "3"}}
+            self.assertEqual(
+                agent.send_message_to_printer("dev", json.dumps(speed_req), 0, 0),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.set_print_speed.assert_called_with(124)
+            self.assertEqual(acks[-1]["print"]["spd_lvl"], 3)
+            self.assertEqual(acks[-1]["print"]["spd_mag"], 124)
+
+            # Fan via M106 / M107 gcode_line
+            self.assertEqual(
+                agent.send_message_to_printer(
+                    "dev",
+                    json.dumps({"print": {"command": "gcode_line", "param": "M106 P1 S255\n"}}),
+                    0,
+                    0,
+                ),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.set_fan.assert_called_with(True)
+
+            self.assertEqual(
+                agent.send_message_to_printer(
+                    "dev",
+                    json.dumps({"print": {"command": "gcode_line", "param": "M106 P1 S0\n"}}),
+                    0,
+                    0,
+                ),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.set_fan.assert_called_with(False)
+
+            # Home & Axis control allowed only when READY
+            mock_client.get_status.return_value = {"machine_status": "READY"}
+            self.assertEqual(
+                agent.command_go_home("dev", False, False, 10, True),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.home_axes.assert_called_once_with("")
+
+            self.assertEqual(
+                agent.command_axis_control("dev", "Z", 10.0, 1.0, 1200, False, False, 11, True),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.move_axis_relative.assert_called_once_with("Z", 10.0, feedrate=1200)
+
+            # Extruder axis 'E' is blocked for safety
+            self.assertEqual(
+                agent.command_axis_control("dev", "E", 10.0, 1.0, 300, False, False, 12, True),
+                ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE,
+            )
+
+            # Motion blocked when printing
+            self.assertEqual(
+                agent.command_go_home("dev", True, False, 13, True),
+                ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE,
+            )
+            mock_client.get_status.return_value = {"machine_status": "BUILDING_FROM_SD"}
+            self.assertEqual(
+                agent.command_axis_control("dev", "X", 10.0, 1.0, 3000, False, False, 14, True),
+                ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE,
             )
 
     def test_start_local_print_and_cancel(self) -> None:

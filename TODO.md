@@ -101,9 +101,9 @@ OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabi
 `Parallel-7/flashforge-api-docs`（`networkserver_commands_adventurer4.yaml`）および実機検証をもとに、Adventurer 4（TCP `8899`）のリモート操作を拡充する。
 
 ### 1. Device タブ連携の拡充（`orca_plugin/printer_agent.py`）
-- [ ] **速度メーター（`100%`）**: `print.command == "print_speed"`（Silent 50% / Standard 100% / Sport 124% / Ludicrous 166%）を `~M663 S<percent>` へ接続し、`push_status` の `spd_lvl` / `spd_mag` と同期する
-- [ ] **冷却ファン（`Fan`）**: `gcode_line` の `M106` / `M107` を Adventurer 4 の `~M106`（ON）/ `~M107`（OFF）へ接続する
-- [ ] **ホーム（`🏠`）＆ XY / Bed(Z) 軸移動**: `command_go_home` / `command_axis_control`（`~G28`, `~G91` → `~G1` → `~G90`）を **待機中（`READY`）限定** で許可し、印刷中の誤操作をブロックする
+- [x] **速度メーター（`100%`）**: `print.command == "print_speed"`（Silent 50% / Standard 100% / Sport 124% / Ludicrous 166%）を `~M663 S<percent>` へ接続し、`push_status` の `spd_lvl` / `spd_mag` と同期する
+- [x] **冷却ファン（`Fan`）**: `gcode_line` の `M106` / `M107` を Adventurer 4 の `~M106`（ON）/ `~M107`（OFF）へ接続する
+- [x] **ホーム（`🏠`）＆ XY / Bed(Z) 軸移動**: `command_go_home` / `command_axis_control`（`~G28`, `~G91` → `~G1` → `~G90`）を **待機中（`READY`）限定** で許可し、印刷中の誤操作をブロックする
 
 ### 2. 安全・便利機能（`Adventurer 4` タブ / `flashforge_client.py`）
 - [ ] **ステッパーモーター解除（`~M18`）** / 励磁（`~M17`）ボタン

@@ -882,6 +882,37 @@ class FlashforgeClient:
             raise ValueError("Print speed must be between 10 and 200%")
         return self.send_command(f"~M663 S{speed}")
 
+    def set_fan(self, on: bool) -> str:
+        """Turn the part cooling fan ON (~M106) or OFF (~M107)."""
+        return self.send_command("~M106" if on else "~M107")
+
+    def home_axes(self, axes: str = "") -> str:
+        """Home all axes (~G28) or specified X/Y/Z axes."""
+        valid = [ch for ch in axes.upper() if ch in {"X", "Y", "Z"}]
+        unique_axes = list(dict.fromkeys(valid))
+        cmd = f"~G28 {' '.join(unique_axes)}" if unique_axes else "~G28"
+        return self.send_command(cmd)
+
+    def move_axis_relative(self, axis: str, delta: float, feedrate: int = 3000) -> str:
+        """Move X/Y/Z axis by relative delta (mm), always restoring absolute mode (~G90)."""
+        ax = axis.strip().upper()
+        if ax not in {"X", "Y", "Z"}:
+            raise ValueError(f"Unsupported axis: {axis!r}")
+        dist = float(delta)
+        if not -200.0 <= dist <= 200.0:
+            raise ValueError("Relative move distance must be between -200 and 200 mm")
+        speed = max(60, min(12000, int(feedrate)))
+
+        with self._lock:
+            self.send_command("~G91")
+            try:
+                return self.send_command(f"~G1 {ax}{dist:.2f} F{speed}")
+            finally:
+                try:
+                    self.send_command("~G90")
+                except FlashforgeError as exc:
+                    logger.warning("Failed to restore absolute mode (~G90): %s", exc)
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         """Keep only the safe basename for 0:/user/<filename>."""

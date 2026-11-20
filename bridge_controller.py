@@ -198,6 +198,8 @@ class BridgeController:
             base_dir=self.base_dir,
             ff_client=self.client,
         )
+        self._last_print_speed: int = 100
+        self._last_fan_on: bool | None = None
 
     @property
     def camera_url(self) -> str:
@@ -288,7 +290,56 @@ class BridgeController:
         return self._run_int_param(target, "target", self.client.set_bed_temp)
 
     def set_print_speed(self, percent: Any) -> tuple[int, dict[str, Any]]:
-        return self._run_int_param(percent, "percent", self.client.set_print_speed)
+        code, data = self._run_int_param(percent, "percent", self.client.set_print_speed)
+        if code == 200:
+            self._last_print_speed = int(data["percent"])
+        return code, data
+
+    def set_fan(self, on: bool) -> tuple[int, dict[str, Any]]:
+        flag = bool(on)
+        try:
+            self.client.set_fan(flag)
+            self._last_fan_on = flag
+            return 200, {"ok": True, "fan": flag}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+    def _ensure_ready_for_motion(self) -> tuple[int, dict[str, Any]] | None:
+        try:
+            st = self.client.get_status(quiet=True)
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+        machine_status = str(st.get("machine_status") or "").strip().upper()
+        if machine_status != "READY":
+            return 409, {
+                "ok": False,
+                "error": f"Motion commands are only allowed when READY (current: {machine_status or 'UNKNOWN'})",
+            }
+        return None
+
+    def home_axes(self, axes: str = "") -> tuple[int, dict[str, Any]]:
+        guard = self._ensure_ready_for_motion()
+        if guard is not None:
+            return guard
+        try:
+            self.client.home_axes(axes)
+            return 200, {"ok": True, "action": "home", "axes": axes}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+    def move_axis_relative(
+        self, axis: str, delta: float, feedrate: int = 3000
+    ) -> tuple[int, dict[str, Any]]:
+        guard = self._ensure_ready_for_motion()
+        if guard is not None:
+            return guard
+        try:
+            self.client.move_axis_relative(axis, delta, feedrate=feedrate)
+            return 200, {"ok": True, "axis": axis.upper(), "delta": float(delta)}
+        except (TypeError, ValueError) as exc:
+            return 400, {"ok": False, "error": str(exc)}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
 
     def _run_int_param(
         self,

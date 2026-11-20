@@ -25,6 +25,7 @@ BAMBU_NETWORK_ERR_INVALID_RESULT = -19
 BAMBU_NETWORK_ERR_PRINT_LP_UPLOAD_FTP_FAILED = -4020
 BAMBU_NETWORK_ERR_PRINT_SG_UPLOAD_FTP_FAILED = -5010
 BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED = -6010
+ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE = -7020
 
 PRINTING_STAGE_CREATE = 0
 PRINTING_STAGE_UPLOAD = 1
@@ -34,10 +35,31 @@ PRINTING_STAGE_FINISHED = 6
 # DevStorage::HAS_SDCARD_NORMAL (1) shifted into home_flag bits 8-9
 _HOME_FLAG_HAS_SDCARD = 1 << 8
 
+_SPEED_LEVEL_TO_PERCENT: dict[int, int] = {
+    1: 50,   # Silent
+    2: 100,  # Standard
+    3: 124,  # Sport
+    4: 166,  # Ludicrous
+}
+
 _PLATE_GCODE_RE = re.compile(r"^Metadata/plate_\d+\.gcode$")
 _GCODE_M104_RE = re.compile(r"\bM104\b[^;\n]*\bS(-?\d+(?:\.\d+)?)", re.IGNORECASE)
 _GCODE_M140_RE = re.compile(r"\bM140\b[^;\n]*\bS(-?\d+(?:\.\d+)?)", re.IGNORECASE)
 _GCODE_M663_RE = re.compile(r"\bM663\b[^;\n]*\bS(\d+)", re.IGNORECASE)
+_GCODE_M106_RE = re.compile(r"\bM106\b([^;\n]*)", re.IGNORECASE)
+_GCODE_M107_RE = re.compile(r"\bM107\b", re.IGNORECASE)
+_GCODE_S_PARAM_RE = re.compile(r"\bS(\d+(?:\.\d+)?)", re.IGNORECASE)
+
+
+def percent_to_speed_level(percent: int) -> int:
+    """Map a Flashforge print speed percentage to OrcaSlicer's 1..4 speed level."""
+    if percent <= 75:
+        return 1
+    if percent <= 112:
+        return 2
+    if percent <= 145:
+        return 3
+    return 4
 
 AGENT_ID = "flashforge_adv4"
 AGENT_NAME = "Flashforge Adventurer 4"
@@ -109,7 +131,11 @@ def map_machine_status_to_orca(machine_status: str) -> tuple[str, int]:
     return "IDLE", 0
 
 
-def build_push_status_payload(status: dict[str, Any]) -> dict[str, Any]:
+def build_push_status_payload(
+    status: dict[str, Any],
+    speed_percent: int = 100,
+    fan_on: bool | None = None,
+) -> dict[str, Any]:
     """Translate BridgeController.get_printer_status() into OrcaSlicer push_status JSON."""
     gcode_state, mc_print_stage = map_machine_status_to_orca(
         str(status.get("machine_status") or "")
@@ -133,7 +159,13 @@ def build_push_status_payload(status: dict[str, Any]) -> dict[str, Any]:
         "support_bed_leveling": 0,
         "nozzle_temp_range": [0, 265],
         "bed_temp_range": [0, 110],
+        "spd_lvl": percent_to_speed_level(int(speed_percent)),
+        "spd_mag": int(speed_percent),
     }
+
+    if fan_on is not None:
+        print_obj["cooling_fan_speed"] = "15" if fan_on else "0"
+        print_obj["fan_gear"] = 255 if fan_on else 0
 
     if nozzle.get("actual") is not None:
         print_obj["nozzle_temper"] = float(nozzle["actual"])
@@ -398,7 +430,11 @@ class PrinterAgentMixin:
             if ctrl is not None:
                 try:
                     status = ctrl.get_printer_status()
-                    payload = build_push_status_payload(status)
+                    payload = build_push_status_payload(
+                        status,
+                        speed_percent=getattr(ctrl, "_last_print_speed", 100),
+                        fan_on=getattr(ctrl, "_last_fan_on", None),
+                    )
                     self._emit_local_message(dev_id, payload)
                 except Exception as exc:
                     logger.debug("PrinterAgent status poll failed: %s", exc)
@@ -454,6 +490,55 @@ class PrinterAgentMixin:
             return BAMBU_NETWORK_ERR_INVALID_HANDLE
         code, _ = ctrl.set_bed_temp(int(temp))
         return BAMBU_NETWORK_SUCCESS if code == 200 else BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
+
+    def command_go_home(
+        self,
+        dev_id: str,
+        is_printing: bool,
+        supports_mqtt_homing: bool,
+        sequence_id: int,
+        lan_mode: bool,
+    ) -> int:
+        del dev_id, supports_mqtt_homing, sequence_id, lan_mode
+        if is_printing:
+            return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
+        ctrl = self._get_controller()
+        if ctrl is None:
+            return BAMBU_NETWORK_ERR_INVALID_HANDLE
+        code, _ = ctrl.home_axes()
+        if code == 200:
+            return BAMBU_NETWORK_SUCCESS
+        if code == 409:
+            return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
+        return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
+
+    def command_axis_control(
+        self,
+        dev_id: str,
+        axis: str,
+        unit: float,
+        input_val: float,
+        speed: int,
+        is_core_xy: bool,
+        supports_mqtt_axis_control: bool,
+        sequence_id: int,
+        lan_mode: bool,
+    ) -> int:
+        del dev_id, is_core_xy, supports_mqtt_axis_control, sequence_id, lan_mode
+        ax = str(axis or "").strip().upper()
+        if ax not in {"X", "Y", "Z"}:
+            return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
+        ctrl = self._get_controller()
+        if ctrl is None:
+            return BAMBU_NETWORK_ERR_INVALID_HANDLE
+        delta = float(input_val) * float(unit)
+        feedrate = int(speed) if speed else 3000
+        code, _ = ctrl.move_axis_relative(ax, delta, feedrate=feedrate)
+        if code == 200:
+            return BAMBU_NETWORK_SUCCESS
+        if code == 409:
+            return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
+        return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
 
     def send_message(self, dev_id: str, json_str: str, qos: int, flag: int) -> int:
         return self.send_message_to_printer(dev_id, json_str, qos, flag)
@@ -532,6 +617,35 @@ class PrinterAgentMixin:
         if cmd == "set_nozzle_temp" and "target_temp" in print_obj:
             code, _ = ctrl.set_nozzle_temp(print_obj["target_temp"])
             return BAMBU_NETWORK_SUCCESS if code == 200 else BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
+        if cmd == "print_speed" and "param" in print_obj:
+            try:
+                level = int(str(print_obj["param"]).strip())
+            except ValueError:
+                return BAMBU_NETWORK_ERR_INVALID_RESULT
+            percent = _SPEED_LEVEL_TO_PERCENT.get(level)
+            if percent is None:
+                return BAMBU_NETWORK_ERR_INVALID_RESULT
+            code, _ = ctrl.set_print_speed(percent)
+            if code == 200:
+                self._emit_local_message(
+                    dev_id,
+                    {
+                        "print": {
+                            "command": "push_status",
+                            "spd_lvl": level,
+                            "spd_mag": percent,
+                        }
+                    },
+                )
+                return BAMBU_NETWORK_SUCCESS
+            return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
+        if cmd == "home":
+            code, _ = ctrl.home_axes()
+            if code == 200:
+                return BAMBU_NETWORK_SUCCESS
+            if code == 409:
+                return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
+            return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
         if cmd == "gcode_line":
             return self._handle_gcode_line(dev_id, ctrl, print_obj)
 
@@ -556,6 +670,17 @@ class PrinterAgentMixin:
         m663 = _GCODE_M663_RE.search(param)
         if m663:
             code, _ = ctrl.set_print_speed(int(m663.group(1)))
+            ok = ok and (code == 200)
+
+        m107 = _GCODE_M107_RE.search(param)
+        m106 = _GCODE_M106_RE.search(param)
+        if m107:
+            code, _ = ctrl.set_fan(False)
+            ok = ok and (code == 200)
+        elif m106:
+            s_match = _GCODE_S_PARAM_RE.search(m106.group(1))
+            fan_on = True if s_match is None else float(s_match.group(1)) > 0.0
+            code, _ = ctrl.set_fan(fan_on)
             ok = ok and (code == 200)
 
         resp: dict[str, Any] = {
