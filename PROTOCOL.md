@@ -40,6 +40,10 @@ Flashforge Adventurer 4（`Control Success V2.1.` ファームウェア）の TC
 | `~M104 S230 T0\r\n` | ヘッド目標温度の設定（印刷中も可） | `CMD M104 Received.\r\nok` |
 | `~M140 S60\r\n` | プラットフォーム目標温度の設定（印刷中も可） | `CMD M140 Received.\r\nok` |
 | `~M663 S90\r\n` | プリント速度（%）の変更（例: `90`, `100`） | `CMD M663 Received.\r\nok` |
+| `~M106\r\n` / `~M107\r\n` | 冷却ファン ON / OFF | `CMD M106 Received.\r\nok` |
+| `~M114\r\n` | 現在座標の取得 | `CMD M114 Received.\r\nX:0.00 Y:0.00 Z:0.00 A:0.00 B:0.00\r\nok` |
+| `~M17\r\n` / `~M18\r\n` | ステッパーモーター励磁 / 解除 | `CMD M18 Received.\r\nok` |
+| `~M112\r\n` | 緊急停止（全動作・加熱の即時停止） | `CMD M112 Received.\r\nok` |
 
 ※ FlashPrint の接続時には上記に加えて `~M650\r\n`（`X: 1.0 Y: 0.5`）および `~M114\r\n`（現在座標）も送信されていました。
 
