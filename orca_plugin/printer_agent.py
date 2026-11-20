@@ -32,8 +32,9 @@ PRINTING_STAGE_UPLOAD = 1
 PRINTING_STAGE_SENDING = 3
 PRINTING_STAGE_FINISHED = 6
 
-# DevStorage::HAS_SDCARD_NORMAL (1) shifted into home_flag bits 8-9
+# DevStorage::HAS_SDCARD_NORMAL (1) shifted into home_flag bits 8-9, plus X/Y/Z homed bits (0..2)
 _HOME_FLAG_HAS_SDCARD = 1 << 8
+_HOME_FLAG_XYZ_HOMED = 0x07
 
 _SPEED_LEVEL_TO_PERCENT: dict[int, int] = {
     1: 50,   # Silent
@@ -48,6 +49,7 @@ _GCODE_M140_RE = re.compile(r"\bM140\b[^;\n]*\bS(-?\d+(?:\.\d+)?)", re.IGNORECAS
 _GCODE_M663_RE = re.compile(r"\bM663\b[^;\n]*\bS(\d+)", re.IGNORECASE)
 _GCODE_M106_RE = re.compile(r"\bM106\b([^;\n]*)", re.IGNORECASE)
 _GCODE_M107_RE = re.compile(r"\bM107\b", re.IGNORECASE)
+_GCODE_G28_RE = re.compile(r"\bG28\b([^;\n]*)", re.IGNORECASE)
 _GCODE_S_PARAM_RE = re.compile(r"\bS(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
@@ -154,7 +156,7 @@ def build_push_status_payload(
         "mc_print_error_code": 0,
         "print_error": 0,
         "sdcard": True,
-        "home_flag": _HOME_FLAG_HAS_SDCARD,
+        "home_flag": _HOME_FLAG_HAS_SDCARD | _HOME_FLAG_XYZ_HOMED,
         "support_send_to_sd": True,
         "support_bed_leveling": 0,
         "nozzle_temp_range": [0, 265],
@@ -681,6 +683,12 @@ class PrinterAgentMixin:
             s_match = _GCODE_S_PARAM_RE.search(m106.group(1))
             fan_on = True if s_match is None else float(s_match.group(1)) > 0.0
             code, _ = ctrl.set_fan(fan_on)
+            ok = ok and (code == 200)
+
+        g28 = _GCODE_G28_RE.search(param)
+        if g28:
+            axes = g28.group(1).strip()
+            code, _ = ctrl.home_axes(axes)
             ok = ok and (code == 200)
 
         resp: dict[str, Any] = {

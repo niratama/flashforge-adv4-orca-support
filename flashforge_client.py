@@ -891,7 +891,7 @@ class FlashforgeClient:
         valid = [ch for ch in axes.upper() if ch in {"X", "Y", "Z"}]
         unique_axes = list(dict.fromkeys(valid))
         cmd = f"~G28 {' '.join(unique_axes)}" if unique_axes else "~G28"
-        return self.send_command(cmd)
+        return self.send_command(cmd, timeout=self.transfer_timeout)
 
     def move_axis_relative(self, axis: str, delta: float, feedrate: int = 3000) -> str:
         """Move X/Y/Z axis by relative delta (mm), always restoring absolute mode (~G90)."""

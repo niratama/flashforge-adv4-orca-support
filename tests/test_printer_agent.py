@@ -102,6 +102,7 @@ class TestPrinterAgent(unittest.TestCase):
         self.assertEqual(p["mc_print_stage"], 1)
         self.assertTrue(p["sdcard"])
         self.assertEqual(p["home_flag"] & (0x3 << 8), 1 << 8)
+        self.assertEqual(p["home_flag"] & 0x07, 0x07)
         self.assertTrue(p["support_send_to_sd"])
         self.assertEqual(p["nozzle_temper"], 205.5)
         self.assertEqual(p["bed_target_temper"], 60.0)
@@ -277,7 +278,18 @@ class TestPrinterAgent(unittest.TestCase):
                 agent.command_go_home("dev", False, False, 10, True),
                 BAMBU_NETWORK_SUCCESS,
             )
-            mock_client.home_axes.assert_called_once_with("")
+            mock_client.home_axes.assert_called_with("")
+
+            self.assertEqual(
+                agent.send_message_to_printer(
+                    "dev",
+                    json.dumps({"print": {"command": "gcode_line", "param": "G28 X Y\n"}}),
+                    0,
+                    0,
+                ),
+                BAMBU_NETWORK_SUCCESS,
+            )
+            mock_client.home_axes.assert_called_with("X Y")
 
             self.assertEqual(
                 agent.command_axis_control("dev", "Z", 10.0, 1.0, 1200, False, False, 11, True),
