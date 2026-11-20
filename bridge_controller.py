@@ -322,8 +322,8 @@ class BridgeController:
         if guard is not None:
             return guard
         try:
-            self.client.home_axes(axes)
-            return 200, {"ok": True, "action": "home", "axes": axes}
+            raw = self.client.home_axes(axes)
+            return 200, {"ok": True, "action": "home", "axes": axes, "response": raw}
         except FlashforgeError as exc:
             return 502, {"ok": False, "error": str(exc)}
 

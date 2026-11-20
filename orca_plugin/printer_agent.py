@@ -231,6 +231,21 @@ class PrinterAgentMixin:
             return None
         return self._controller_provider()
 
+    def _trace(self, line: str) -> None:
+        """Append a diagnostic line to snapshot_dir/printer_agent_debug.log when server.debug is enabled."""
+        ctrl = self._get_controller()
+        if ctrl is None or not ctrl.server_cfg.get("debug", False):
+            return
+        try:
+            snap_dir = ctrl.snapshot_manager.snapshot_dir
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            log_path = snap_dir / "printer_agent_debug.log"
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {line}\n")
+        except Exception as exc:
+            logger.debug("PrinterAgent trace write failed: %s", exc)
+
     def _default_dev_id(self) -> str:
         ctrl = self._get_controller()
         ip = ctrl.printer_ip if ctrl is not None else "192.168.1.100"
@@ -501,14 +516,18 @@ class PrinterAgentMixin:
         sequence_id: int,
         lan_mode: bool,
     ) -> int:
-        del dev_id, supports_mqtt_homing, sequence_id, lan_mode
+        self._trace(
+            f"command_go_home dev_id={dev_id!r} is_printing={is_printing} "
+            f"supports_mqtt_homing={supports_mqtt_homing} seq={sequence_id} lan={lan_mode}"
+        )
         logger.info("PrinterAgent command_go_home called (is_printing=%s)", is_printing)
         if is_printing:
             return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
         ctrl = self._get_controller()
         if ctrl is None:
             return BAMBU_NETWORK_ERR_INVALID_HANDLE
-        code, _ = ctrl.home_axes()
+        code, data = ctrl.home_axes()
+        self._trace(f"command_go_home -> code={code} data={data!r}")
         if code == 200:
             return BAMBU_NETWORK_SUCCESS
         if code == 409:
@@ -550,6 +569,7 @@ class PrinterAgentMixin:
         self, dev_id: str, json_str: str, qos: int, flag: int
     ) -> int:
         del qos, flag
+        self._trace(f"send_message_to_printer dev_id={dev_id!r} json={json_str}")
         try:
             req = json.loads(json_str)
         except json.JSONDecodeError:
