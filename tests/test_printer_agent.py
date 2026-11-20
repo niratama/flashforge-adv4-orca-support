@@ -24,6 +24,7 @@ from printer_agent import (  # noqa: E402
     AGENT_NAME,
     BAMBU_NETWORK_ERR_CANCELED,
     BAMBU_NETWORK_ERR_FILE_NOT_EXIST,
+    BAMBU_NETWORK_ERR_INVALID_RESULT,
     BAMBU_NETWORK_SUCCESS,
     ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE,
     PRINTING_STAGE_FINISHED,
@@ -430,6 +431,30 @@ class TestPrinterAgent(unittest.TestCase):
             else:
                 sys.modules.pop("orca", None)
             importlib.reload(orca_plugin_mod)
+
+    def test_extract_3mf_enforces_streaming_max_bytes_and_invalid_command_args(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive = Path(tmpdir) / "big.3mf"
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("Metadata/plate_1.gcode", b"G1 X1 Y1\n" * 100)
+
+            with self.assertRaises(ValueError):
+                extract_gcode_from_file(archive, plate_index=1, max_bytes=32)
+
+        mock_ctrl = MagicMock(spec=BridgeController)
+        agent = PrinterAgentMixin(controller_provider=lambda: mock_ctrl)
+        self.assertEqual(
+            agent.command_set_nozzle("dev1", "not-a-number", 1, True),  # type: ignore[arg-type]
+            BAMBU_NETWORK_ERR_INVALID_RESULT,
+        )
+        self.assertEqual(
+            agent.command_set_bed("dev1", None, True, 1, True),  # type: ignore[arg-type]
+            BAMBU_NETWORK_ERR_INVALID_RESULT,
+        )
+        self.assertEqual(
+            agent.command_axis_control("dev1", "X", 10.0, "bad", 3000, False, True, 1, True),  # type: ignore[arg-type]
+            BAMBU_NETWORK_ERR_INVALID_RESULT,
+        )
 
 
 if __name__ == "__main__":

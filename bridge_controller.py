@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -202,6 +203,7 @@ class BridgeController:
         self._last_print_speed: int = 100
         self._last_fan_on: bool | None = None
         self._file_thumbnail_cache: dict[str, str] = {}
+        self._file_thumbnail_lock = threading.Lock()
 
     @property
     def camera_url(self) -> str:
@@ -443,7 +445,8 @@ class BridgeController:
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
 
-        cached = self._file_thumbnail_cache.get(norm_path)
+        with self._file_thumbnail_lock:
+            cached = self._file_thumbnail_cache.get(norm_path)
         if cached is not None:
             return 200, {"ok": True, "path": norm_path, "data_url": cached}
 
@@ -456,9 +459,10 @@ class BridgeController:
             return 404, {"ok": False, "error": "Thumbnail not available"}
 
         data_url = "data:image/bmp;base64," + base64.b64encode(bmp).decode("ascii")
-        if len(self._file_thumbnail_cache) >= 64:
-            self._file_thumbnail_cache.pop(next(iter(self._file_thumbnail_cache)))
-        self._file_thumbnail_cache[norm_path] = data_url
+        with self._file_thumbnail_lock:
+            if len(self._file_thumbnail_cache) >= 64:
+                self._file_thumbnail_cache.pop(next(iter(self._file_thumbnail_cache)))
+            self._file_thumbnail_cache[norm_path] = data_url
         return 200, {"ok": True, "path": norm_path, "data_url": data_url}
 
     def start_printer_file(self, file_path: str) -> tuple[int, dict[str, Any]]:

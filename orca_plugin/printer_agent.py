@@ -99,7 +99,20 @@ def extract_gcode_from_file(
                 raise ValueError(
                     f"Extracted G-code exceeds max size ({info.file_size} > {max_bytes})"
                 )
-            data = zf.read(info)
+            chunks: list[bytes] = []
+            total = 0
+            with zf.open(info, "r") as stream:
+                while True:
+                    chunk = stream.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError(
+                            f"Extracted G-code exceeds max size ({total} > {max_bytes})"
+                        )
+                    chunks.append(chunk)
+            data = b"".join(chunks)
 
         base_name = project_name.strip() if project_name else path.stem
         if base_name.lower().endswith(".gcode"):
@@ -220,6 +233,7 @@ class PrinterAgentMixin:
         self._status_poll_interval = max(0.2, float(status_poll_interval))
 
         self._state_lock = threading.RLock()
+        self._trace_lock = threading.Lock()
         self._callbacks: dict[str, Any] = {}
         self._selected_machine: str = ""
         self._connected_dev_id: str = ""
@@ -231,6 +245,8 @@ class PrinterAgentMixin:
             return None
         return self._controller_provider()
 
+    _MAX_TRACE_LOG_BYTES = 5 * 1024 * 1024
+
     def _trace(self, line: str) -> None:
         """Append a diagnostic line to snapshot_dir/printer_agent_debug.log when server.debug is enabled."""
         ctrl = self._get_controller()
@@ -238,11 +254,15 @@ class PrinterAgentMixin:
             return
         try:
             snap_dir = ctrl.snapshot_manager.snapshot_dir
-            snap_dir.mkdir(parents=True, exist_ok=True)
             log_path = snap_dir / "printer_agent_debug.log"
             ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(f"[{ts}] {line}\n")
+            with self._trace_lock:
+                snap_dir.mkdir(parents=True, exist_ok=True)
+                if log_path.exists() and log_path.stat().st_size >= self._MAX_TRACE_LOG_BYTES:
+                    rotated = snap_dir / "printer_agent_debug.log.1"
+                    log_path.replace(rotated)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(f"[{ts}] {line}\n")
         except Exception as exc:
             logger.debug("PrinterAgent trace write failed: %s", exc)
 
@@ -490,7 +510,11 @@ class PrinterAgentMixin:
         ctrl = self._get_controller()
         if ctrl is None:
             return BAMBU_NETWORK_ERR_INVALID_HANDLE
-        code, _ = ctrl.set_nozzle_temp(int(temp))
+        try:
+            target = int(temp)
+        except (TypeError, ValueError):
+            return BAMBU_NETWORK_ERR_INVALID_RESULT
+        code, _ = ctrl.set_nozzle_temp(target)
         return BAMBU_NETWORK_SUCCESS if code == 200 else BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
 
     def command_set_bed(
@@ -505,7 +529,11 @@ class PrinterAgentMixin:
         ctrl = self._get_controller()
         if ctrl is None:
             return BAMBU_NETWORK_ERR_INVALID_HANDLE
-        code, _ = ctrl.set_bed_temp(int(temp))
+        try:
+            target = int(temp)
+        except (TypeError, ValueError):
+            return BAMBU_NETWORK_ERR_INVALID_RESULT
+        code, _ = ctrl.set_bed_temp(target)
         return BAMBU_NETWORK_SUCCESS if code == 200 else BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
 
     def command_go_home(
@@ -553,8 +581,11 @@ class PrinterAgentMixin:
         ctrl = self._get_controller()
         if ctrl is None:
             return BAMBU_NETWORK_ERR_INVALID_HANDLE
-        delta = float(input_val) * float(unit)
-        feedrate = int(speed) if speed else 3000
+        try:
+            delta = float(input_val) * float(unit)
+            feedrate = int(speed) if speed else 3000
+        except (TypeError, ValueError):
+            return BAMBU_NETWORK_ERR_INVALID_RESULT
         code, _ = ctrl.move_axis_relative(ax, delta, feedrate=feedrate)
         if code == 200:
             return BAMBU_NETWORK_SUCCESS

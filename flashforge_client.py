@@ -1061,6 +1061,7 @@ class FlashforgeClient:
                     header_bin = self._recv_exact_buffered(buf, 8)
                 magic, bmp_len = struct.unpack(">4sI", header_bin)
                 if magic != b"**\xa2\xa2" or bmp_len == 0 or bmp_len > 256 * 1024:
+                    self._close_socket()
                     return None
                 bmp_bytes = self._recv_exact_buffered(buf, bmp_len)
                 return bmp_bytes if bmp_bytes.startswith(b"BM") else None
