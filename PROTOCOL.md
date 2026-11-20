@@ -114,3 +114,35 @@ FlashPrint（`ffslicer 2.4.4`）の出力実ファイル、`maugier/rust-xgcode`
 - **`0x2E` (`perimeter_shells`)**: シェル数設定（2 → 3）に連動してそのまま格納される。
 - **壁（ウォール）と最初の数レイヤー低速化**: 専用のヘッダフラグは存在せず、`print_time` と `filament_0_usage` にのみ反映される。
 - **サムネイル BMP**: 80×60・24bit RGB 非圧縮 BMP（下から上へのボトムアップ、BGR 順）。OrcaSlicer が G-code 内に埋め込む `; thumbnail begin ...`（Base64 PNG）を標準ライブラリのみでデコード・アスペクト比維持リサイズして変換することで、実機タッチパネル上にカラープレビューが表示されることを確認済み。
+
+---
+
+## 7. 内部ストレージファイル一覧・サムネイル取得（`~M661` / `~M662`）
+
+Adventurer 4 実機への直接プローブで確認したバイナリ応答フォーマットは以下のとおりです。いずれもテキストヘッダ（`ok\r\n`）の **直後** にビッグエンディアンのバイナリ本体が続きます。
+
+### 7.1 ファイル一覧取得 (`~M661`)
+- **送信**: `~M661\r\n`
+- **応答**:
+  ```text
+  CMD M661 Received.\r\n
+  ok\r\n
+  <4B magic: 0x44 0xAA 0xAA 0x44 ("D\xaa\xaaD")>
+  <4B uint32 BE: file_count>
+  [file_count 回繰り返し]:
+    <4B delimiter: 0x3A 0x3A 0xA3 0xA3 ("::\xa3\xa3")>
+    <4B uint32 BE: path_byte_len>
+    <path_byte_len bytes: UTF-8 ファイルパス（例: "/data/Buckle_Box_v2.gx"、日本語名可）>
+  ```
+
+### 7.2 サムネイル取得 (`~M662`)
+- **送信**: `~M662 /data/<filename>.gx\r\n`
+- **応答**:
+  ```text
+  CMD M662 Received.\r\n
+  ok\r\n
+  <4B magic: 0x2A 0x2A 0xA2 0xA2 ("**\xa2\xa2")>
+  <4B uint32 BE: bmp_byte_len (例: 14454 = 0x00003876)>
+  <bmp_byte_len bytes: 80×60 24bit 非圧縮 BMP ("BM...")>
+  ```
+- 取得した BMP はそのまま `image/bmp` として Web UI / `Pages` タブに表示可能。また既存ファイルの再印刷は `~M23 0:/user/<filename>.gx\r\n` で開始できる。

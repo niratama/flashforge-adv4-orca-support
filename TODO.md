@@ -92,4 +92,24 @@ OrcaSlicer 2.5.0+ の公式プラグイン仕様（`orca.pages.PagesPluginCapabi
 - [x] **Step 2-2**: `orca_plugin/printer_agent.py`（`PrinterAgentMixin` + `FlashforgePrinterAgent`）および `FlashforgeClient.send_file()` の進捗・キャンセルコールバック対応、`.3mf` 内 G-code 抽出を実装する
 - [x] **Step 2-3**: [orca_plugin/plugin.py](./orca_plugin/plugin.py) への `FlashforgePrinterAgent` 登録、[scripts/build_orca_plugin.py](./scripts/build_orca_plugin.py) 同梱、単体テスト（`tests/test_printer_agent.py`）を追加する
 - [x] **Step 2-4**: `server.enabled = false` 時でも `Device` タブ・`Adventurer 4` タブ・印刷中自動スナップショットが Adventurer 4 カメラ（`:8080`、同時接続 1 本制限）を競合せず共有できるよう、カメラリレー専用の動的空きポート（`127.0.0.1:0`）を軽量起動する仕組みを追加する
-- [ ] **Step 2-5**: Windows 版 OrcaSlicer 2.5.0+ 実機で `use_printer_agents` 有効時の `Print plate`・Device タブ監視・制御・カメラリレー共存を最終検証する
+- [ ] **Step 2-5**: Windows 版 OrcaSlicer 2.5.0+ 実機で `use_printer_agents` 有効時の `Print plate`（確認済み）・Lamp（確認済み）・カメラ同時表示（確認済み）・残りの Device タブ制御を最終検証する
+
+---
+
+## 機能拡張 TODO: Device タブ制御拡充 & Adventurer 4 追加コマンド
+
+`Parallel-7/flashforge-api-docs`（`networkserver_commands_adventurer4.yaml`）および実機検証をもとに、Adventurer 4（TCP `8899`）のリモート操作を拡充する。
+
+### 1. Device タブ連携の拡充（`orca_plugin/printer_agent.py`）
+- [ ] **速度メーター（`100%`）**: `print.command == "print_speed"`（Silent 50% / Standard 100% / Sport 124% / Ludicrous 166%）を `~M663 S<percent>` へ接続し、`push_status` の `spd_lvl` / `spd_mag` と同期する
+- [ ] **冷却ファン（`Fan`）**: `gcode_line` の `M106` / `M107` を Adventurer 4 の `~M106`（ON）/ `~M107`（OFF）へ接続する
+- [ ] **ホーム（`🏠`）＆ XY / Bed(Z) 軸移動**: `command_go_home` / `command_axis_control`（`~G28`, `~G91` → `~G1` → `~G90`）を **待機中（`READY`）限定** で許可し、印刷中の誤操作をブロックする
+
+### 2. 安全・便利機能（`Adventurer 4` タブ / `flashforge_client.py`）
+- [ ] **ステッパーモーター解除（`~M18`）** / 励磁（`~M17`）ボタン
+- [ ] **緊急停止（`~M112`）** ボタン（誤操作防止の確認ダイアログ付き）
+- [ ] **現在座標表示（`~M114`）**（必要に応じてステータスへ追加）
+
+### 3. 内部ストレージファイル管理（実機検証済み）
+- [x] `~M661`（内部ファイル一覧取得）・`~M662`（サムネイル取得）の実機応答を検証し、`PROTOCOL.md` に記録する
+- [ ] 応答形式が確認できたら、`Adventurer 4` タブから過去アップロード済みファイルの一覧表示・サムネイル表示・再印刷（`~M23`）ができるようにする
