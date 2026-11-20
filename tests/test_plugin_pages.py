@@ -24,6 +24,20 @@ class _FakePagesCapability(orca_plugin_mod.PagesBridgeMixin):
 
 
 class TestPluginPagesCapability(unittest.TestCase):
+    def test_resolve_plugin_data_dir_conventions(self) -> None:
+        local_dir = Path("/app/OrcaSlicer/orca_plugins/flashforge_adv4_bridge")
+        self.assertEqual(
+            orca_plugin_mod.resolve_plugin_data_dir(local_dir),
+            Path("/app/OrcaSlicer/orca_plugins/plugin_data/flashforge-adv4-bridge"),
+        )
+        cloud_dir = Path("/app/OrcaSlicer/orca_plugins/_subscribed/user42/flashforge_adv4_bridge")
+        self.assertEqual(
+            orca_plugin_mod.resolve_plugin_data_dir(cloud_dir),
+            Path("/app/OrcaSlicer/orca_plugins/plugin_data/flashforge-adv4-bridge"),
+        )
+        dev_dir = Path("/workspace/orca_plugin")
+        self.assertEqual(orca_plugin_mod.resolve_plugin_data_dir(dev_dir), dev_dir)
+
     def test_render_dashboard_html_embeds_http_base_url(self) -> None:
         tpl = (REPO_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         rendered = render_dashboard_html(

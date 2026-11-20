@@ -19,8 +19,22 @@ import threading
 from pathlib import Path
 from typing import Any
 
+PLUGIN_ID = "flashforge-adv4-bridge"
 PLUGIN_DIR = Path(__file__).resolve().parent
 LIB_DIR = PLUGIN_DIR / "lib"
+
+
+def resolve_plugin_data_dir(plugin_dir: Path = PLUGIN_DIR) -> Path:
+    """Resolve the persistent plugin data directory per OrcaSlicer's plugin_data convention."""
+    parent = plugin_dir.parent
+    if parent.name == "orca_plugins":
+        return parent / "plugin_data" / PLUGIN_ID
+    if (
+        parent.parent.name == "_subscribed"
+        and parent.parent.parent.name == "orca_plugins"
+    ):
+        return parent.parent.parent / "plugin_data" / PLUGIN_ID
+    return plugin_dir
 if LIB_DIR.is_dir():
     if str(LIB_DIR) not in sys.path:
         sys.path.insert(0, str(LIB_DIR))
@@ -551,7 +565,7 @@ def _ensure_controller_locked(cfg: dict[str, Any]) -> BridgeController:
             logger.warning("BridgeController restart stop failed: %s", exc)
         _controller_instance = None
 
-    controller = BridgeController(config=cfg, base_dir=PLUGIN_ROOT)
+    controller = BridgeController(config=cfg, base_dir=resolve_plugin_data_dir(PLUGIN_DIR))
     controller.start()
     _controller_instance = controller
     if not _atexit_registered:
@@ -855,24 +869,35 @@ if orca is not None:  # pragma: no cover - exercised inside OrcaSlicer 2.5.0+
             camera_url = printer_cfg.get("camera_url", f"http://{printer_ip}:8080/?action=stream")
             server_host = server_cfg.get("host", "127.0.0.1")
             server_port = int(server_cfg.get("port", 5000))
+            data_dir = resolve_plugin_data_dir(PLUGIN_DIR)
             snapshot_dir = Path(camera_cfg.get("snapshot_dir", "snapshots"))
             if not snapshot_dir.is_absolute():
-                snapshot_dir = PLUGIN_DIR / snapshot_dir
+                snapshot_dir = data_dir / snapshot_dir
 
             if hasattr(orca, "request_permissions"):
+                perm_kwargs = dict(
+                    fs_read=[str(PLUGIN_DIR)],
+                    fs_readwrite=[str(snapshot_dir), f"{snapshot_dir}/*"],
+                    network_http=[camera_url],
+                    network_socket=[
+                        f"('{printer_ip}', {printer_port})",
+                        f"('{server_host}', {server_port})",
+                        f"('127.0.0.1', {server_port})",
+                        "('127.0.0.1', 0)",
+                    ],
+                    threading=True,
+                )
                 try:
                     orca.request_permissions(
-                        fs_read=[str(PLUGIN_DIR)],
-                        fs_readwrite=[str(snapshot_dir)],
-                        network_http=[camera_url],
-                        network_socket=[
-                            f"('{printer_ip}', {printer_port})",
-                            f"('{server_host}', {server_port})",
-                            f"('127.0.0.1', {server_port})",
-                            "('127.0.0.1', 0)",
-                        ],
-                        threading=True,
+                        **perm_kwargs,
+                        fs_create=[str(data_dir), str(snapshot_dir)],
+                        fs_delete=[str(snapshot_dir)],
                     )
+                except TypeError:
+                    try:
+                        orca.request_permissions(**perm_kwargs)
+                    except Exception as exc:
+                        logger.debug("request_permissions skipped/failed: %s", exc)
                 except Exception as exc:
                     logger.debug("request_permissions skipped/failed: %s", exc)
             orca.register_capability(FlashforgeBridgeCapability)
