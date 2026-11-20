@@ -268,6 +268,27 @@ class TestAppEndpoints(unittest.TestCase):
         )
         self.assertEqual(oversized.status_code, 413)
 
+    def test_storage_files_endpoints(self) -> None:
+        self.mock_client.list_files.return_value = [{"path": "/data/benchy.gx", "name": "benchy.gx"}]
+        self.mock_client.get_file_thumbnail.return_value = b"BM\x00\x00"
+        self.mock_client.get_status.return_value = {"machine_status": "READY"}
+        self.mock_client.start_existing_print.return_value = "benchy.gx"
+
+        res = self.client.get("/api/printer/files")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.get_json()["files"][0]["name"], "benchy.gx")
+
+        thumb = self.client.get("/api/printer/files/thumbnail?path=/data/benchy.gx")
+        self.assertEqual(thumb.status_code, 200)
+        self.assertTrue(thumb.get_json()["data_url"].startswith("data:image/bmp;base64,"))
+
+        bad_thumb = self.client.get("/api/printer/files/thumbnail?path=../evil.gx")
+        self.assertEqual(bad_thumb.status_code, 400)
+
+        reprint = self.client.post("/api/printer/files/print", json={"filename": "/data/benchy.gx"})
+        self.assertEqual(reprint.status_code, 200)
+        self.assertTrue(reprint.get_json()["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

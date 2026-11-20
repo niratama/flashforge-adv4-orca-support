@@ -200,6 +200,7 @@ class BridgeController:
         )
         self._last_print_speed: int = 100
         self._last_fan_on: bool | None = None
+        self._file_thumbnail_cache: dict[str, str] = {}
 
     @property
     def camera_url(self) -> str:
@@ -399,6 +400,62 @@ class BridgeController:
         return self.temp_history.to_payload()
 
     # ------------------------------------------------------------------
+    # Internal Storage Files (~M661 / ~M662 / ~M23)
+    # ------------------------------------------------------------------
+
+    def list_printer_files(self) -> tuple[int, dict[str, Any]]:
+        try:
+            files = self.client.list_files()
+            return 200, {"ok": True, "files": files}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+    def get_printer_file_thumbnail(self, file_path: str) -> tuple[int, dict[str, Any]]:
+        raw = str(file_path or "").strip()
+        if not raw:
+            return 400, {"ok": False, "error": "File path is required"}
+        try:
+            norm_path = FlashforgeClient.normalize_storage_path(raw)
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+
+        cached = self._file_thumbnail_cache.get(norm_path)
+        if cached is not None:
+            return 200, {"ok": True, "path": norm_path, "data_url": cached}
+
+        try:
+            bmp = self.client.get_file_thumbnail(norm_path)
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+        if not bmp:
+            return 404, {"ok": False, "error": "Thumbnail not available"}
+
+        data_url = "data:image/bmp;base64," + base64.b64encode(bmp).decode("ascii")
+        if len(self._file_thumbnail_cache) >= 64:
+            self._file_thumbnail_cache.pop(next(iter(self._file_thumbnail_cache)))
+        self._file_thumbnail_cache[norm_path] = data_url
+        return 200, {"ok": True, "path": norm_path, "data_url": data_url}
+
+    def start_printer_file(self, file_path: str) -> tuple[int, dict[str, Any]]:
+        raw = str(file_path or "").strip()
+        if not raw:
+            return 400, {"ok": False, "error": "Filename is required"}
+        try:
+            norm_path = FlashforgeClient.normalize_storage_path(raw)
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+
+        guard = self._ensure_ready_for_motion()
+        if guard is not None:
+            return guard
+        try:
+            started_name = self.client.start_existing_print(norm_path)
+            return 200, {"ok": True, "action": "print_file", "filename": started_name}
+        except FlashforgeError as exc:
+            return 502, {"ok": False, "error": str(exc)}
+
+    # ------------------------------------------------------------------
     # OctoPrint Compatibility & File Transfer
     # ------------------------------------------------------------------
 
@@ -521,6 +578,16 @@ class BridgeController:
             return self.capture_snapshot()
         if action == "camera.snapshots.get":
             return self.get_snapshot_data_url(str(payload.get("filename") or ""))
+        if action == "printer.files.list":
+            return self.list_printer_files()
+        if action == "printer.files.thumbnail":
+            return self.get_printer_file_thumbnail(
+                str(payload.get("path") or payload.get("filename") or "")
+            )
+        if action == "printer.files.print":
+            return self.start_printer_file(
+                str(payload.get("filename") or payload.get("path") or "")
+            )
         if action == "history.temperature":
             return 200, self.get_temperature_history()
         return 404, {"ok": False, "error": f"Unknown action: {action}"}

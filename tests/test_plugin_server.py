@@ -137,6 +137,38 @@ class TestPluginBridgeServer(unittest.TestCase):
             urllib.request.urlopen(bad_req, timeout=3)
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_storage_files_endpoints(self) -> None:
+        self.mock_client.list_files.return_value = [{"path": "/data/benchy.gx", "name": "benchy.gx"}]
+        self.mock_client.get_file_thumbnail.return_value = b"BM\x00\x00"
+        self.mock_client.get_status.return_value = {"machine_status": "READY"}
+        self.mock_client.start_existing_print.return_value = "benchy.gx"
+
+        with urllib.request.urlopen(f"{self.base_url}/api/printer/files", timeout=3) as resp:
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(len(payload["files"]), 1)
+            self.assertEqual(payload["files"][0]["name"], "benchy.gx")
+
+        with urllib.request.urlopen(
+            f"{self.base_url}/api/printer/files/thumbnail?path=/data/benchy.gx",
+            timeout=3,
+        ) as resp:
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(payload["data_url"].startswith("data:image/bmp;base64,"))
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/printer/files/print",
+            data=json.dumps({"filename": "/data/benchy.gx"}).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            self.assertEqual(resp.status, 200)
+            payload = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["filename"], "benchy.gx")
+
     def test_build_plugin_creates_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out = build_plugin(Path(tmpdir) / "flashforge_adv4_bridge")

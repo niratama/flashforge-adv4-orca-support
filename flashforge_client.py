@@ -913,6 +913,141 @@ class FlashforgeClient:
                 except FlashforgeError as exc:
                     logger.warning("Failed to restore absolute mode (~G90): %s", exc)
 
+    def _recv_until_marker(self, buf: bytearray, marker: bytes) -> bytes:
+        assert self._sock is not None
+        while marker not in buf:
+            try:
+                chunk = self._sock.recv(8192)
+            except socket.timeout as exc:
+                raise FlashforgeError("Timed out waiting for printer binary response header.") from exc
+            except OSError as exc:
+                raise FlashforgeError(f"Socket receive failed: {exc}") from exc
+            if not chunk:
+                raise FlashforgeError("Printer closed the connection.")
+            buf.extend(chunk)
+            if len(buf) > self.MAX_RESPONSE_BYTES:
+                raise FlashforgeError("Printer response exceeded maximum allowed size.")
+        idx = buf.find(marker) + len(marker)
+        out = bytes(buf[:idx])
+        del buf[:idx]
+        return out
+
+    def _recv_exact_buffered(self, buf: bytearray, count: int) -> bytes:
+        assert self._sock is not None
+        while len(buf) < count:
+            try:
+                chunk = self._sock.recv(max(4096, count - len(buf)))
+            except socket.timeout as exc:
+                raise FlashforgeError("Timed out reading binary payload from printer.") from exc
+            except OSError as exc:
+                raise FlashforgeError(f"Socket receive failed: {exc}") from exc
+            if not chunk:
+                raise FlashforgeError("Printer closed the connection during binary read.")
+            buf.extend(chunk)
+        out = bytes(buf[:count])
+        del buf[:count]
+        return out
+
+    def list_files(self) -> list[dict[str, str]]:
+        """Fetch internal storage file list via ~M661 binary response."""
+        with self._lock:
+            self._ensure_connected()
+            assert self._sock is not None
+            orig_timeout = self._sock.gettimeout()
+            self._sock.settimeout(max(self.timeout, 10.0))
+            buf = bytearray()
+            try:
+                self._send_raw("~M661\r\n")
+                self._recv_until_marker(buf, b"ok\r\n")
+                magic, count = struct.unpack(">4sI", self._recv_exact_buffered(buf, 8))
+                if magic != b"D\xaa\xaaD":
+                    raise FlashforgeError(f"Unexpected M661 magic: {magic!r}")
+                if count > 5000:
+                    raise FlashforgeError(f"Unexpected M661 file count: {count}")
+
+                files: list[dict[str, str]] = []
+                for _ in range(count):
+                    delim, length = struct.unpack(">4sI", self._recv_exact_buffered(buf, 8))
+                    if delim != b"::\xa3\xa3" or length > 1024:
+                        raise FlashforgeError(f"Invalid M661 entry header: delim={delim!r} len={length}")
+                    path = self._recv_exact_buffered(buf, length).decode("utf-8", errors="replace")
+                    name = path.rsplit("/", 1)[-1]
+                    files.append({"path": path, "name": name})
+                return files
+            except Exception as exc:
+                self._close_socket()
+                if isinstance(exc, FlashforgeError):
+                    raise
+                raise FlashforgeError(f"Failed to list files (~M661): {exc}") from exc
+            finally:
+                if self._sock is not None:
+                    try:
+                        self._sock.settimeout(orig_timeout)
+                    except OSError:
+                        pass
+
+    @staticmethod
+    def normalize_storage_path(file_path: str) -> str:
+        """Validate and normalize an Adventurer 4 internal storage path (/data/<name>)."""
+        raw = file_path.strip()
+        if not raw or "\r" in raw or "\n" in raw or "\x00" in raw:
+            raise ValueError("Invalid storage file path")
+        if raw.startswith("0:/user/"):
+            raw = "/data/" + raw[len("0:/user/") :]
+        elif not raw.startswith("/data/"):
+            raw = "/data/" + raw.lstrip("/")
+        name = raw[len("/data/") :]
+        if not name or "/" in name or "\\" in name or name in {".", ".."} or ".." in name:
+            raise ValueError(f"Unsafe storage file path: {file_path!r}")
+        return f"/data/{name}"
+
+    def get_file_thumbnail(self, file_path: str) -> bytes | None:
+        """Fetch embedded 80x60 BMP thumbnail for an internal file via ~M662."""
+        norm_path = self.normalize_storage_path(file_path)
+        with self._lock:
+            self._ensure_connected()
+            assert self._sock is not None
+            orig_timeout = self._sock.gettimeout()
+            self._sock.settimeout(max(self.timeout, 10.0))
+            buf = bytearray()
+            try:
+                self._send_raw(f"~M662 {norm_path}\r\n")
+                header = self._recv_until_marker(buf, b"ok\r\n")
+                if b"error" in header.lower():
+                    return None
+                if len(buf) < 8:
+                    self._sock.settimeout(min(self.timeout, 1.5))
+                    try:
+                        header_bin = self._recv_exact_buffered(buf, 8)
+                    except FlashforgeError:
+                        return None
+                    self._sock.settimeout(max(self.timeout, 10.0))
+                else:
+                    header_bin = self._recv_exact_buffered(buf, 8)
+                magic, bmp_len = struct.unpack(">4sI", header_bin)
+                if magic != b"**\xa2\xa2" or bmp_len == 0 or bmp_len > 256 * 1024:
+                    return None
+                bmp_bytes = self._recv_exact_buffered(buf, bmp_len)
+                return bmp_bytes if bmp_bytes.startswith(b"BM") else None
+            except Exception as exc:
+                self._close_socket()
+                if isinstance(exc, FlashforgeError):
+                    raise
+                raise FlashforgeError(f"Failed to fetch thumbnail (~M662): {exc}") from exc
+            finally:
+                if self._sock is not None:
+                    try:
+                        self._sock.settimeout(orig_timeout)
+                    except OSError:
+                        pass
+
+    def start_existing_print(self, file_path: str) -> str:
+        """Start printing an existing file on internal storage via ~M23 0:/user/<name>."""
+        norm_path = self.normalize_storage_path(file_path)
+        name = norm_path[len("/data/") :]
+        self.send_command(f"~M23 0:/user/{name}", timeout=self.transfer_timeout)
+        return name
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         """Keep only the safe basename for 0:/user/<filename>."""

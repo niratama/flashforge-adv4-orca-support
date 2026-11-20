@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from bridge_controller import (
     BridgeController,
@@ -155,7 +155,8 @@ def _make_handler(
             self.end_headers()
 
         def do_GET(self) -> None:
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
 
             if path == "/":
                 tpl = template_path.read_text(encoding="utf-8")
@@ -169,6 +170,18 @@ def _make_handler(
 
             if path == "/api/printer/info":
                 status, data = controller.get_printer_info()
+                self._send_json(status, data)
+                return
+
+            if path == "/api/printer/files":
+                status, data = controller.list_printer_files()
+                self._send_json(status, data)
+                return
+
+            if path == "/api/printer/files/thumbnail":
+                query = parse_qs(parsed.query)
+                target = (query.get("path") or query.get("filename") or [""])[0]
+                status, data = controller.get_printer_file_thumbnail(target)
                 self._send_json(status, data)
                 return
 
@@ -263,6 +276,7 @@ def _make_handler(
                 "/api/printer/temperature/nozzle",
                 "/api/printer/temperature/bed",
                 "/api/printer/speed",
+                "/api/printer/files/print",
             }:
                 try:
                     payload = self._read_json_body(body)
@@ -276,8 +290,11 @@ def _make_handler(
                     self._send_json(*controller.set_nozzle_temp(payload.get("target")))
                 elif path == "/api/printer/temperature/bed":
                     self._send_json(*controller.set_bed_temp(payload.get("target")))
-                else:
+                elif path == "/api/printer/speed":
                     self._send_json(*controller.set_print_speed(payload.get("percent")))
+                else:
+                    target = str(payload.get("filename") or payload.get("path") or "")
+                    self._send_json(*controller.start_printer_file(target))
                 return
 
             if path == "/api/files/local":

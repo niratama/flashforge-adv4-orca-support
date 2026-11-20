@@ -229,6 +229,76 @@ class TestBridgeController(unittest.TestCase):
             ctrl_owned.stop()
             ctrl_owned.client.close.assert_called_once()
 
+    def test_storage_files_thumbnail_and_reprint_rpc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_client = MagicMock(spec=FlashforgeClient)
+            mock_client.list_files.return_value = [
+                {"path": "/data/benchy.gx", "name": "benchy.gx"},
+                {"path": "/data/テスト.gx", "name": "テスト.gx"},
+            ]
+            mock_client.get_file_thumbnail.return_value = b"BM\x00\x01\x02\x03"
+            mock_client.start_existing_print.return_value = "benchy.gx"
+            mock_client.get_status.return_value = {"machine_status": "READY"}
+
+            ctrl = BridgeController(
+                config=_sample_config(Path(tmpdir) / "snaps"),
+                base_dir=Path(tmpdir),
+                client=mock_client,
+                start_background=False,
+            )
+
+            res_list = ctrl.handle_message({"id": 10, "action": "printer.files.list"})
+            self.assertTrue(res_list["ok"])
+            self.assertEqual(len(res_list["data"]["files"]), 2)
+            self.assertEqual(res_list["data"]["files"][0]["name"], "benchy.gx")
+            self.assertEqual(res_list["data"]["files"][1]["path"], "/data/テスト.gx")
+
+            res_thumb = ctrl.handle_message(
+                {"id": 11, "action": "printer.files.thumbnail", "payload": {"path": "/data/benchy.gx"}}
+            )
+            self.assertTrue(res_thumb["ok"])
+            self.assertEqual(res_thumb["data"]["path"], "/data/benchy.gx")
+            self.assertTrue(res_thumb["data"]["data_url"].startswith("data:image/bmp;base64,"))
+
+            # Second request hits cache without calling client again
+            res_thumb2 = ctrl.handle_message(
+                {"id": 12, "action": "printer.files.thumbnail", "payload": {"path": "benchy.gx"}}
+            )
+            self.assertTrue(res_thumb2["ok"])
+            self.assertEqual(res_thumb2["data"]["data_url"], res_thumb["data"]["data_url"])
+            mock_client.get_file_thumbnail.assert_called_once()
+
+            # Missing thumbnail returns 404
+            mock_client.get_file_thumbnail.return_value = None
+            res_missing = ctrl.handle_message(
+                {"id": 120, "action": "printer.files.thumbnail", "payload": {"path": "/data/none.gx"}}
+            )
+            self.assertFalse(res_missing["ok"])
+            self.assertEqual(res_missing["status"], 404)
+
+            # Traversal path rejected with 400
+            res_bad = ctrl.handle_message(
+                {"id": 13, "action": "printer.files.thumbnail", "payload": {"path": "../secret.gx"}}
+            )
+            self.assertFalse(res_bad["ok"])
+            self.assertEqual(res_bad["status"], 400)
+
+            # Reprint allowed when READY
+            res_print = ctrl.handle_message(
+                {"id": 14, "action": "printer.files.print", "payload": {"filename": "/data/benchy.gx"}}
+            )
+            self.assertTrue(res_print["ok"])
+            self.assertEqual(res_print["data"]["filename"], "benchy.gx")
+            mock_client.start_existing_print.assert_called_once_with("/data/benchy.gx")
+
+            # Reprint blocked with 409 when busy
+            mock_client.get_status.return_value = {"machine_status": "BUILDING_FROM_SD"}
+            res_busy = ctrl.handle_message(
+                {"id": 15, "action": "printer.files.print", "payload": {"filename": "/data/benchy.gx"}}
+            )
+            self.assertFalse(res_busy["ok"])
+            self.assertEqual(res_busy["status"], 409)
+
     def test_gx_wrapping_and_filename_sanitization(self) -> None:
         gx = FlashforgeClient.wrap_gcode_as_gx(b"G28\nM104 S200\n")
         self.assertTrue(gx.startswith(b"xgcode 1.0\n\x00"))

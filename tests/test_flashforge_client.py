@@ -91,6 +91,21 @@ class MockPrinterServer:
                             b"CurrentFile: benchy.gx\r\n"
                             b"ok\r\n"
                         )
+                    elif cmd == "~M661":
+                        names = ["/data/benchy.gx", "/data/テスト造形.gx", "/data/cube.gcode"]
+                        payload = struct.pack(">4sI", b"D\xaa\xaaD", len(names))
+                        for name in names:
+                            encoded = name.encode("utf-8")
+                            payload += struct.pack(">4sI", b"::\xa3\xa3", len(encoded)) + encoded
+                        conn.sendall(b"CMD M661 Received.\r\nok\r\n" + payload)
+                    elif cmd.startswith("~M662 "):
+                        target = cmd[len("~M662 ") :].strip()
+                        if target == "/data/benchy.gx":
+                            bmp = b"BM" + b"\x00" * 120
+                            payload = struct.pack(">4sI", b"**\xa2\xa2", len(bmp)) + bmp
+                            conn.sendall(b"CMD M662 Received.\r\nok\r\n" + payload)
+                        else:
+                            conn.sendall(b"CMD M662 Received.\r\nError: file not found\r\nok\r\n")
                     else:
                         conn.sendall(f"CMD {cmd} Received.\r\nok\r\n".encode("utf-8"))
 
@@ -319,6 +334,44 @@ class TestFlashforgeClient(unittest.TestCase):
         )
         bomb_gx = FlashforgeClient.wrap_gcode_as_gx(bomb_gcode)
         self.assertEqual(bomb_gx[58 + 54 : 14512], b"\x20\x20\x20" * (80 * 60))
+
+    def test_list_files_thumbnail_and_reprint(self) -> None:
+        files = self.client.list_files()
+        self.assertEqual(
+            files,
+            [
+                {"path": "/data/benchy.gx", "name": "benchy.gx"},
+                {"path": "/data/テスト造形.gx", "name": "テスト造形.gx"},
+                {"path": "/data/cube.gcode", "name": "cube.gcode"},
+            ],
+        )
+
+        bmp = self.client.get_file_thumbnail("benchy.gx")
+        self.assertIsNotNone(bmp)
+        assert bmp is not None
+        self.assertTrue(bmp.startswith(b"BM"))
+        self.assertEqual(len(bmp), 122)
+
+        missing = self.client.get_file_thumbnail("/data/missing.gx")
+        self.assertIsNone(missing)
+
+        saved = self.client.start_existing_print("/data/benchy.gx")
+        self.assertEqual(saved, "benchy.gx")
+        self.assertIn("~M23 0:/user/benchy.gx", self.server.received_commands)
+
+    def test_normalize_storage_path_validation(self) -> None:
+        self.assertEqual(FlashforgeClient.normalize_storage_path("benchy.gx"), "/data/benchy.gx")
+        self.assertEqual(
+            FlashforgeClient.normalize_storage_path("/data/テスト.gx"),
+            "/data/テスト.gx",
+        )
+        self.assertEqual(
+            FlashforgeClient.normalize_storage_path("0:/user/model.gcode"),
+            "/data/model.gcode",
+        )
+        for bad in ["", "   ", "../secret.gx", "/data/../secret.gx", "sub/dir.gx", "bad\r\n~M26"]:
+            with self.assertRaises(ValueError):
+                FlashforgeClient.normalize_storage_path(bad)
 
     def test_connection_error(self) -> None:
         bad_client = FlashforgeClient("127.0.0.1", port=1, timeout=0.5)

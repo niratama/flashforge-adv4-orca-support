@@ -515,6 +515,137 @@
       padding: 6px 10px;
       font-size: 0.85rem;
     }
+
+    .storage-card {
+      margin-top: 20px;
+    }
+
+    .storage-toolbar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+
+    body.ff-bridge-body .storage-filter-input {
+      flex: 1;
+      background: #14171c !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 0.85rem;
+    }
+
+    .storage-grid {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 860px) {
+      .storage-grid { grid-template-columns: 1fr; }
+    }
+
+    .storage-list {
+      max-height: 280px;
+      overflow-y: auto;
+      background: #14171c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .storage-empty {
+      padding: 24px 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    body.ff-bridge-body button.storage-item {
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px !important;
+      font-size: 0.84rem !important;
+      font-weight: 500 !important;
+      background: transparent !important;
+      border: 1px solid transparent !important;
+      border-radius: 6px;
+      color: var(--text) !important;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.ff-bridge-body button.storage-item:hover {
+      background: #20252e !important;
+      border-color: var(--border) !important;
+    }
+
+    body.ff-bridge-body button.storage-item.active {
+      background: rgba(46, 160, 67, 0.16) !important;
+      border-color: var(--accent) !important;
+      color: #ffffff !important;
+    }
+
+    .storage-detail {
+      background: #14171c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .storage-thumb-box {
+      width: 160px;
+      height: 120px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0b0d10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin: 0 auto;
+    }
+
+    .storage-thumb-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .storage-filename {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .storage-path {
+      font-size: 0.76rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    .storage-status {
+      min-height: 18px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .storage-status.error { color: var(--danger); }
+    .storage-status.ok { color: var(--accent); }
   </style>
 </head>
 <body class="ff-bridge-body">
@@ -684,6 +815,47 @@
         <div class="thumb-strip" id="snapshot-thumbs"></div>
       </section>
     </div>
+
+    <section class="card storage-card">
+      <h2>
+        <span>本体ストレージ（再印刷）</span>
+        <div class="header-actions">
+          <span id="storage-count" style="font-size: 0.78rem; color: var(--muted);">0 件</span>
+          <button type="button" class="btn-sm" id="storage-refresh-btn" onclick="fetchStorageFiles()">一覧を更新</button>
+        </div>
+      </h2>
+      <div class="storage-toolbar">
+        <input
+          type="search"
+          id="storage-filter"
+          class="storage-filter-input"
+          placeholder="ファイル名で絞り込み..."
+          oninput="renderStorageList()"
+        />
+      </div>
+      <div class="storage-grid">
+        <div class="storage-list" id="storage-list">
+          <div class="storage-empty">一覧を読み込み中...</div>
+        </div>
+        <div class="storage-detail">
+          <div class="storage-thumb-box" id="storage-thumb-box">
+            <span>ファイルを選択してください</span>
+          </div>
+          <div>
+            <div class="storage-filename" id="storage-selected-name">未選択</div>
+            <div class="storage-path" id="storage-selected-path">--</div>
+          </div>
+          <button
+            type="button"
+            class="primary"
+            id="storage-print-btn"
+            onclick="startSelectedStorageFile()"
+            disabled
+          >このファイルを造形開始</button>
+          <div class="storage-status" id="storage-status"></div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <script>
@@ -756,6 +928,9 @@
         "GET:/api/camera/snapshots": "camera.snapshots.list",
         "POST:/api/camera/snapshots": "camera.snapshots.capture",
         "GET:/api/camera/snapshots/data": "camera.snapshots.get",
+        "GET:/api/printer/files": "printer.files.list",
+        "GET:/api/printer/files/thumbnail": "printer.files.thumbnail",
+        "POST:/api/printer/files/print": "printer.files.print",
         "GET:/api/history/temperature": "history.temperature",
       };
 
@@ -803,18 +978,33 @@
           });
         }
 
+        const methodUpper = method.toUpperCase();
         const headers = {};
+        let fetchUrl = url;
+        let fetchBody = null;
         if (body) {
-          headers["Content-Type"] = "application/json";
+          if (methodUpper === "GET") {
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(body)) {
+              if (v !== undefined && v !== null) params.set(k, String(v));
+            }
+            const qs = params.toString();
+            if (qs) {
+              fetchUrl += (fetchUrl.includes("?") ? "&" : "?") + qs;
+            }
+          } else {
+            headers["Content-Type"] = "application/json";
+            fetchBody = JSON.stringify(body);
+          }
         }
         const apiKey = getStoredApiKey();
         if (apiKey) {
           headers["X-Api-Key"] = apiKey;
         }
-        const res = await fetch(url, {
-          method,
+        const res = await fetch(fetchUrl, {
+          method: methodUpper,
           headers,
-          body: body ? JSON.stringify(body) : null,
+          body: fetchBody,
         });
         const data = await res.json();
         if (res.status === 401) {
@@ -1087,8 +1277,10 @@
         document.getElementById("progress-fill").style.width = `${pct}%`;
         const machineStatusEl = document.getElementById("machine-status");
         const rawStatus = data.machine_status || "UNKNOWN";
+        currentMachineStatus = data.connected ? rawStatus : "DISCONNECTED";
         machineStatusEl.textContent = `状態: ${formatMachineStatus(rawStatus)}`;
         machineStatusEl.title = rawStatus;
+        updateStoragePrintButton();
 
         const fileText = data.current_file ? `ファイル: ${data.current_file}` : "ファイル: なし";
         document.getElementById("current-file").textContent = fileText;
@@ -1104,6 +1296,8 @@
         }
         updateCameraStatus(data.camera);
       } catch (err) {
+        currentMachineStatus = "DISCONNECTED";
+        updateStoragePrintButton();
         dot.className = "dot offline";
         connText.textContent = "サーバー通信エラー";
         updateCameraStatus(null);
@@ -1497,6 +1691,192 @@
       renderSnapshotViewer();
     }
 
+    // ------------------------------------------------------------------
+    // Internal Storage File Browser & Reprint (~M661 / ~M662 / ~M23)
+    // ------------------------------------------------------------------
+    let currentMachineStatus = "UNKNOWN";
+    let storageFiles = [];
+    let selectedStorageFile = null;
+    const storageThumbCache = new Map();
+    let storageThumbSeq = 0;
+
+    function setStorageStatus(text, isError = false, isOk = false) {
+      const el = document.getElementById("storage-status");
+      if (!el) return;
+      el.textContent = text || "";
+      el.className = "storage-status" + (isError ? " error" : isOk ? " ok" : "");
+    }
+
+    function updateStoragePrintButton() {
+      const btn = document.getElementById("storage-print-btn");
+      if (!btn) return;
+      const isReady = currentMachineStatus === "READY";
+      btn.disabled = !selectedStorageFile || !isReady;
+      if (!selectedStorageFile) {
+        btn.title = "ファイルを選択してください";
+      } else if (!isReady) {
+        btn.title = `待機中 (READY) のときのみ開始できます（現在: ${formatMachineStatus(currentMachineStatus)}）`;
+      } else {
+        btn.title = `${selectedStorageFile.name} の造形を開始します`;
+      }
+    }
+
+    async function fetchStorageFiles() {
+      const listEl = document.getElementById("storage-list");
+      const refreshBtn = document.getElementById("storage-refresh-btn");
+      if (refreshBtn) refreshBtn.disabled = true;
+      setStorageStatus("ファイル一覧を取得中...");
+      try {
+        const res = await BridgeTransport.request("GET", "/api/printer/files");
+        if (!res.ok || !res.data || !res.data.ok) {
+          throw new Error((res.data && res.data.error) || `HTTP ${res.status}`);
+        }
+        storageFiles = Array.isArray(res.data.files) ? res.data.files : [];
+        document.getElementById("storage-count").textContent = `${storageFiles.length} 件`;
+        if (selectedStorageFile) {
+          const stillExists = storageFiles.find((f) => f.path === selectedStorageFile.path);
+          if (!stillExists) {
+            selectedStorageFile = null;
+            resetStorageDetail();
+          }
+        }
+        renderStorageList();
+        setStorageStatus("");
+      } catch (err) {
+        if (listEl && storageFiles.length === 0) {
+          listEl.replaceChildren();
+          const empty = document.createElement("div");
+          empty.className = "storage-empty";
+          empty.textContent = "ファイル一覧を取得できませんでした";
+          listEl.appendChild(empty);
+        }
+        setStorageStatus(`一覧取得失敗: ${err.message}`, true);
+      } finally {
+        if (refreshBtn) refreshBtn.disabled = false;
+      }
+    }
+
+    function resetStorageDetail() {
+      const thumbBox = document.getElementById("storage-thumb-box");
+      if (thumbBox) {
+        const span = document.createElement("span");
+        span.textContent = "ファイルを選択してください";
+        thumbBox.replaceChildren(span);
+      }
+      document.getElementById("storage-selected-name").textContent = "未選択";
+      document.getElementById("storage-selected-path").textContent = "--";
+      updateStoragePrintButton();
+    }
+
+    function renderStorageList() {
+      const listEl = document.getElementById("storage-list");
+      if (!listEl) return;
+      const query = (document.getElementById("storage-filter")?.value || "").trim().toLowerCase();
+      const filtered = query
+        ? storageFiles.filter((f) => (f.name || f.path || "").toLowerCase().includes(query))
+        : storageFiles;
+
+      listEl.replaceChildren();
+      if (filtered.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "storage-empty";
+        empty.textContent = storageFiles.length === 0
+          ? "本体ストレージにファイルが見つかりません"
+          : "条件に一致するファイルがありません";
+        listEl.appendChild(empty);
+        return;
+      }
+
+      for (const file of filtered) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "storage-item" + (selectedStorageFile && selectedStorageFile.path === file.path ? " active" : "");
+        btn.textContent = file.name || file.path;
+        btn.title = file.path || file.name;
+        btn.onclick = () => selectStorageFile(file);
+        listEl.appendChild(btn);
+      }
+    }
+
+    async function selectStorageFile(file) {
+      selectedStorageFile = file;
+      renderStorageList();
+      document.getElementById("storage-selected-name").textContent = file.name || file.path;
+      document.getElementById("storage-selected-path").textContent = file.path || "";
+      updateStoragePrintButton();
+      setStorageStatus("");
+
+      const thumbBox = document.getElementById("storage-thumb-box");
+      if (!thumbBox) return;
+
+      const cacheKey = file.path || file.name;
+      if (storageThumbCache.has(cacheKey)) {
+        const cached = storageThumbCache.get(cacheKey);
+        if (cached) {
+          const img = document.createElement("img");
+          img.src = cached;
+          img.alt = file.name || "thumbnail";
+          thumbBox.replaceChildren(img);
+        } else {
+          const span = document.createElement("span");
+          span.textContent = "サムネイルなし";
+          thumbBox.replaceChildren(span);
+        }
+        return;
+      }
+
+      const reqSeq = ++storageThumbSeq;
+      const loading = document.createElement("span");
+      loading.textContent = "サムネイル取得中...";
+      thumbBox.replaceChildren(loading);
+
+      try {
+        const res = await BridgeTransport.request("GET", "/api/printer/files/thumbnail", { path: cacheKey });
+        if (reqSeq !== storageThumbSeq) return;
+        if (res.ok && res.data && res.data.data_url) {
+          storageThumbCache.set(cacheKey, res.data.data_url);
+          const img = document.createElement("img");
+          img.src = res.data.data_url;
+          img.alt = file.name || "thumbnail";
+          thumbBox.replaceChildren(img);
+        } else {
+          storageThumbCache.set(cacheKey, null);
+          const span = document.createElement("span");
+          span.textContent = "サムネイルなし";
+          thumbBox.replaceChildren(span);
+        }
+      } catch (_) {
+        if (reqSeq !== storageThumbSeq) return;
+        const span = document.createElement("span");
+        span.textContent = "サムネイル取得失敗";
+        thumbBox.replaceChildren(span);
+      }
+    }
+
+    async function startSelectedStorageFile() {
+      if (!selectedStorageFile) return;
+      const label = selectedStorageFile.name || selectedStorageFile.path;
+      if (!confirm(`「${label}」の造形を開始しますか？`)) return;
+
+      const btn = document.getElementById("storage-print-btn");
+      if (btn) btn.disabled = true;
+      setStorageStatus("造形開始コマンドを送信中...");
+      try {
+        const res = await BridgeTransport.request("POST", "/api/printer/files/print", {
+          filename: selectedStorageFile.path || selectedStorageFile.name,
+        });
+        if (!res.ok || !res.data || !res.data.ok) {
+          throw new Error((res.data && res.data.error) || `HTTP ${res.status}`);
+        }
+        setStorageStatus(`「${label}」の造形を開始しました`, false, true);
+        await fetchStatus();
+      } catch (err) {
+        setStorageStatus(`造形開始失敗: ${err.message}`, true);
+      } finally {
+        updateStoragePrintButton();
+      }
+    }
+
     if (BridgeTransport.isOrcaMode()) {
       const apiBtn = document.getElementById("api-key-toggle-btn");
       const apiBar = document.getElementById("api-key-bar");
@@ -1508,6 +1888,7 @@
     fetchTempHistory();
     fetchSnapshots(true);
     fetchStatus();
+    fetchStorageFiles();
     setInterval(fetchStatus, 2500);
     setInterval(() => fetchSnapshots(false), 15000);
   </script>

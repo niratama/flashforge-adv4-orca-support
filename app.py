@@ -181,6 +181,27 @@ def create_app(
         status_code, data = controller.set_print_speed(payload.get("percent"))
         return jsonify(data), status_code
 
+    @app.get("/api/printer/files")
+    def printer_files_list():
+        status_code, data = controller.list_printer_files()
+        return jsonify(data), status_code
+
+    @app.get("/api/printer/files/thumbnail")
+    def printer_file_thumbnail():
+        target = request.args.get("path") or request.args.get("filename") or ""
+        status_code, data = controller.get_printer_file_thumbnail(target)
+        return jsonify(data), status_code
+
+    @app.post("/api/printer/files/print")
+    def printer_files_print():
+        payload, err = _parse_optional_json()
+        if err is not None:
+            return err
+        assert payload is not None
+        target = str(payload.get("filename") or payload.get("path") or "")
+        status_code, data = controller.start_printer_file(target)
+        return jsonify(data), status_code
+
     # ------------------------------------------------------------------
     # Camera Relay, Snapshots & Temperature History
     # ------------------------------------------------------------------
