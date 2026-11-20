@@ -502,6 +502,7 @@ class PrinterAgentMixin:
         lan_mode: bool,
     ) -> int:
         del dev_id, supports_mqtt_homing, sequence_id, lan_mode
+        logger.info("PrinterAgent command_go_home called (is_printing=%s)", is_printing)
         if is_printing:
             return ORCA_NETWORK_ERR_CAP_NOT_AVAILABLE
         ctrl = self._get_controller()
@@ -641,7 +642,7 @@ class PrinterAgentMixin:
                 )
                 return BAMBU_NETWORK_SUCCESS
             return BAMBU_NETWORK_ERR_CONNECTION_TO_PRINTER_FAILED
-        if cmd == "home":
+        if cmd in {"home", "back_to_center"}:
             code, _ = ctrl.home_axes()
             if code == 200:
                 return BAMBU_NETWORK_SUCCESS
